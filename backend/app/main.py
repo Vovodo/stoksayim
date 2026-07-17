@@ -123,7 +123,7 @@ async def health_head():
 
 
 @app.get("/api/health")
-async def health():
+async def api_health():
     meta = count_service.stock.get_metadata() if count_service.stock.is_loaded() else {}
     return {
         "status": "ok",
