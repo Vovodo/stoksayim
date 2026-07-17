@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api import auth, count, reports, system
@@ -114,8 +114,12 @@ app.include_router(system.router, prefix="/api")
 
 
 @app.get("/health")
-async def root_health():
+async def health():
     return {"status": "ok"}
+
+@app.head("/health")
+async def health_head():
+    return Response(status_code=200)
 
 
 @app.get("/api/health")
