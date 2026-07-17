@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+node_modules/
+dist/
+build/
+backend/static/
+*.db
+uploads/
+reports/
+.DS_Store
+*.log
+*.tsbuildinfo
+admin
+operator

@@ -1,0 +1,28 @@
+# Render — tek servis (FastAPI + React static)
+# Blueprint ile deploy edin veya Render Dashboard ayarlarını aşağıdaki gibi yapın.
+
+services:
+  - type: web
+    name: stoksayim
+    runtime: python
+    plan: starter
+    region: frankfurt
+    buildCommand: bash scripts/build_render.sh
+    startCommand: bash scripts/start_render.sh
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.0"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATA_DIR
+        value: /var/data
+      # İsteğe bağlı — aynı domain deploy'da gerekmez
+      # - key: ALLOWED_ORIGINS
+      #   value: https://stoksayim.onrender.com
+    disk:
+      name: stoksayim-data
+      mountPath: /var/data
+      sizeGB: 1
