@@ -346,6 +346,9 @@ class AppDatabaseRepository(SQLiteSessionRepository):
     async def get_session(self, session_id: int) -> Optional[dict]:
         return await self._fetch_one("SELECT * FROM sessions WHERE id = ?", (session_id,))
 
+    async def get_all_sessions(self) -> list[dict]:
+        return await self._fetch_all("SELECT * FROM sessions ORDER BY id DESC")
+
     async def get_active_session(self) -> Optional[dict]:
         return await self._fetch_one("SELECT * FROM sessions WHERE status = 'active' ORDER BY id DESC")
 
