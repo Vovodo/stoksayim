@@ -1,5 +1,5 @@
 import { api } from "../api";
-import type { ItemStatus, ShelfItem, ShelfStats, ShelfSummary } from "../types";
+import { CountTrackingStatus, type ItemStatus, type ShelfItem, type ShelfStats, type ShelfSummary } from "../types";
 import { isClassicEtiketCode } from "./etiketFormat";
 import { feedbackKindFromScan, showScanFlash, showScanFeedback } from "./scanFeedback";
 import { showScanMessage, showScanToast } from "./toast";
@@ -20,6 +20,14 @@ export interface ScanPatch {
   shelves?: ShelfSummary[];
   reloadShelf?: string;
 }
+
+const COMMAND_CODES = new Set([
+  "CMD:FINISH_SHELF",
+  "CMD_FINISH_SHELF",
+  "RAFI_BITIR",
+  "CMD:RAFI_BITIR",
+  "FINISH_SHELF",
+]);
 
 class ScanQueue {
   private queue: string[] = [];
@@ -42,11 +50,14 @@ class ScanQueue {
     this.setCorrectionListener(fn);
   }
 
+  private activeShelf = "";
+
   setSessionActive(active: boolean): void {
     this.sessionActive = active;
   }
 
-  setShelfData(_shelf: string, items: ShelfItem[]): void {
+  setShelfData(shelf: string, items: ShelfItem[]): void {
+    this.activeShelf = shelf;
     this.items.clear();
     for (const item of items) {
       this.items.set(item.line_id, item);
@@ -87,6 +98,8 @@ class ScanQueue {
     const code = rawCode.trim();
     if (!code) return;
 
+    const isCommand = COMMAND_CODES.has(code.toUpperCase());
+
     const now = Date.now();
     if (
       this.lastEnqueue?.code === code &&
@@ -97,26 +110,51 @@ class ScanQueue {
     this.lastEnqueue = { code, at: now };
 
     if (!this.sessionActive) {
-      showScanToast("Sayım oturumu yok", "unknown");
+      showScanToast("Sayım oturumu başlatılmadı! (Yönetim → Sayım Başlat)", "unknown");
+      showScanMessage("🔴 Sayım başlatılmadı! Lütfen Yönetim sekmesinden 'Sayım Başlat'a tıklayın.", "unknown");
       showScanFlash("error");
       return;
     }
 
-    const hasLocal = [...this.items.values()].some((i) => i.etiket === code);
-    if (hasLocal) {
-      const pending = this.updateFirstPendingByEtiket(code, optimisticItemUpdate);
-      if (Object.keys(pending).length > 0) {
-        this.emit({ items: pending });
-        showScanToast(code, "normal");
-        showScanFlash("success", code);
-        this.optimisticFeedback.add(code);
-      } else {
-        showScanToast(code, "over");
-        showScanFlash("error", code);
+    if (code.toUpperCase() === "CMD:FINISH_SHELF") {
+      const pendingUpdates: Record<string, ShelfItem> = {};
+      for (const [lineId, item] of this.items) {
+        if (
+          item.scanned < item.expected &&
+          item.tracking_status !== CountTrackingStatus.BULUNAMADI &&
+          item.tracking_status !== CountTrackingStatus.YANLIS_LOKASYONDA
+        ) {
+          const updated: ShelfItem = {
+            ...item,
+            tracking_status: CountTrackingStatus.BULUNAMADI,
+          };
+          this.items.set(lineId, updated);
+          pendingUpdates[lineId] = updated;
+        }
+      }
+      if (Object.keys(pendingUpdates).length > 0) {
+        this.emit({ items: pendingUpdates });
+      }
+      showScanToast("Raftaki kalan ürünler bulunamadı işaretlendi", "normal");
+      showScanMessage(`🟢 '${this.activeShelf}' rafı tamamlandı. Eksik ürünler 'Bulunamadı' işaretlendi.`, "normal");
+      showScanFlash("success", "CMD:FINISH_SHELF");
+    } else if (!isCommand) {
+      const hasLocal = [...this.items.values()].some((i) => i.etiket === code);
+      if (hasLocal) {
+        const pending = this.updateFirstPendingByEtiket(code, optimisticItemUpdate);
+        if (Object.keys(pending).length > 0) {
+          this.emit({ items: pending });
+          showScanToast(code, "normal");
+          showScanFlash("success", code);
+          this.optimisticFeedback.add(code);
+        } else {
+          showScanToast(code, "over");
+          showScanFlash("error", code);
+          return;
+        }
+      } else if (!isClassicEtiketCode(code)) {
         return;
       }
-    } else if (!isClassicEtiketCode(code)) {
-      return;
     }
 
     this.queue.push(code);
@@ -129,7 +167,7 @@ class ScanQueue {
     while (this.queue.length > 0) {
       const code = this.queue.shift()!;
       try {
-        const result = (await api.scan(code)) as ScanResponse;
+        const result = (await api.scan(code, this.activeShelf || undefined)) as ScanResponse;
         this.applyServerResult(result);
       } catch {
         showScanToast(code, "unknown");
@@ -141,6 +179,22 @@ class ScanQueue {
 
   private applyServerResult(result: ScanResponse): void {
     if (result.scan_type === "ignored") return;
+
+    const isCommand =
+      COMMAND_CODES.has(result.etiket.toUpperCase()) ||
+      result.etiket === "CMD:FINISH_SHELF";
+
+    if (isCommand) {
+      showScanMessage(`🟢 ${result.message}`, "normal");
+      const patch: ScanPatch = {
+        reloadShelf: result.active_shelf,
+        activeShelf: result.active_shelf,
+        stats: result.shelf_stats,
+        shelves: result.shelves_summary,
+      };
+      this.emit(patch);
+      return;
+    }
 
     const kind: ToastKind = toastKindFromScan(result);
     if (result.scan_type === "misplaced") {

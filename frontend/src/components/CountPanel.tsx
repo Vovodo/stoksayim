@@ -62,10 +62,13 @@ export function CountPanel({
   const loadShelf = useCallback(async (shelf: string) => {
     if (!shelf) return;
     const seq = ++loadSeq.current;
-    setLoadingShelf(true);
+    const timer = setTimeout(() => {
+      if (seq === loadSeq.current) setLoadingShelf(true);
+    }, 120);
     try {
       const detail: ShelfDetail = await api.shelf(shelf);
       if (seq !== loadSeq.current) return;
+      clearTimeout(timer);
 
       itemsMapRef.current.clear();
       for (const it of detail.items) itemsMapRef.current.set(it.line_id, it);
@@ -74,11 +77,13 @@ export function CountPanel({
       setItems(detail.items);
       setStats(detail.stats);
     } catch (err) {
+      clearTimeout(timer);
       if (seq !== loadSeq.current) return;
       clearShelfView(setItems, setStats, itemsMapRef, shelf);
       const msg = err instanceof Error ? err.message : "Raf yüklenemedi";
       showScanToast(msg, "unknown");
     } finally {
+      clearTimeout(timer);
       if (seq === loadSeq.current) setLoadingShelf(false);
     }
   }, []);
@@ -102,16 +107,12 @@ export function CountPanel({
       if (patch.shelves) onShelvesUpdate(patch.shelves);
 
       if (patch.reloadShelf) {
-        userPickedShelf.current = false;
-        clearShelfView(setItems, setStats, itemsMapRef, patch.reloadShelf);
         setActiveShelf(patch.reloadShelf);
         void loadShelf(patch.reloadShelf);
         return;
       }
 
       if (patch.activeShelf && patch.activeShelf !== activeShelfRef.current) {
-        userPickedShelf.current = false;
-        clearShelfView(setItems, setStats, itemsMapRef, patch.activeShelf);
         setActiveShelf(patch.activeShelf);
         void loadShelf(patch.activeShelf);
         return;
@@ -145,7 +146,6 @@ export function CountPanel({
     (shelf: string, options?: { fromInput?: boolean }) => {
       userPickedShelf.current = true;
       setActiveShelf(shelf);
-      clearShelfView(setItems, setStats, itemsMapRef, shelf);
       void loadShelf(shelf);
       if (sessionActive) {
         void api.activateShelf(shelf).catch(() => {});
@@ -168,23 +168,36 @@ export function CountPanel({
   );
 
   const totalProgress = useMemo(() => {
-    const expected = shelves.reduce((sum, s) => sum + s.total_expected, 0);
-    const scanned = shelves.reduce((sum, s) => sum + s.total_scanned, 0);
-    if (expected <= 0) return shelves.length === 0 ? 0 : 100;
-    return Math.round((scanned / expected) * 1000) / 10;
+    const totalEtikets = shelves.reduce((sum, s) => sum + s.total_etikets, 0);
+    const processed = shelves.reduce(
+      (sum, s) => sum + s.completed_etikets + (s.not_found_etikets ?? 0),
+      0,
+    );
+    if (totalEtikets <= 0) return 0;
+    return Math.round((processed / totalEtikets) * 1000) / 10;
   }, [shelves]);
 
   const markOneNotFound = useCallback(
     async (lineId: string) => {
       if (!activeShelf || !sessionActive) return;
+      showScanToast("Ürün bulunamadı olarak işaretlendi", "normal");
+
+      // 0ms Optimistic UI update
+      setItems((prevItems) =>
+        prevItems.map((it) =>
+          it.line_id === lineId
+            ? { ...it, tracking_status: CountTrackingStatus.BULUNAMADI }
+            : it,
+        ),
+      );
+
       setActingLineId(lineId);
       try {
         await api.markNotFound(activeShelf, [lineId]);
-        await loadShelf(activeShelf);
         const sh = await api.shelves().catch(() => shelves);
         onShelvesUpdate(sh);
-        showScanMessage("Ürün bulunamadı olarak işaretlendi", "unknown");
       } catch (err) {
+        void loadShelf(activeShelf);
         const msg = err instanceof Error ? err.message : "İşaretleme başarısız";
         showScanToast(msg, "unknown");
       } finally {

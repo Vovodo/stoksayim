@@ -8,7 +8,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     build: {
-      outDir: "dist",
+      outDir: "../backend/static",
+      emptyOutDir: true,
       sourcemap: false,
       chunkSizeWarningLimit: 600,
     },

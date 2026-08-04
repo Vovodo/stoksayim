@@ -93,9 +93,10 @@ class ShelfStats:
 
     @property
     def completion_pct(self) -> float:
-        if self.total_expected == 0:
-            return 100.0 if self.total_etikets == 0 else 0.0
-        return round((self.total_scanned / self.total_expected) * 100, 1)
+        if self.total_etikets == 0:
+            return 0.0
+        processed = self.completed_etikets + self.not_found_etikets
+        return round((processed / self.total_etikets) * 100, 1)
 
 
 @dataclass

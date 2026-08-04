@@ -64,6 +64,27 @@ async def upload_excel(
         stock_repo.clear()
         raise HTTPException(400, str(exc)) from exc
 
+    try:
+        await session_repo.set_setting("latest_excel_filename", file.filename)
+        from app.services.storage_settings_service import StorageSettingsService
+        storage_svc = StorageSettingsService(session_repo)
+        supabase_storage = await storage_svc.get_supabase_storage()
+        if supabase_storage:
+            content = dest.read_bytes()
+            mime = (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                if file.filename.endswith(".xlsx")
+                else "application/vnd.ms-excel"
+            )
+            await supabase_storage.save(f"excel/{file.filename}", content, mime)
+            await session_repo.add_system_event(
+                user["id"],
+                "supabase_storage_sync",
+                f"Excel Supabase Storage bucket'ına kaydedildi: excel/{file.filename}",
+            )
+    except Exception as exc:
+        pass
+
     await count_service.reload_session_state()
     await session_repo.add_audit_log(
         user["id"], "excel_upload", f"Dosya yüklendi: {file.filename}"
@@ -186,6 +207,11 @@ async def list_corrections(user: dict = Depends(get_current_user)):
 async def list_not_found_recoveries(user: dict = Depends(get_current_user)):
     items = await count_service.get_not_found_recoveries()
     return [FoundMissingRecoveryResponse(**i) for i in items]
+
+
+@router.get("/not-found/markings")
+async def list_not_found_markings(user: dict = Depends(get_current_user)):
+    return await count_service.get_active_not_found_markings()
 
 
 @router.post("/not-found/mark", response_model=NotFoundMarkResponse)

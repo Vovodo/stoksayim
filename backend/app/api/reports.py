@@ -74,12 +74,28 @@ def summary_to_report(
     )
 
 
-@router.get("/summary", response_model=ReportSummary)
-async def report_summary(user: dict = Depends(get_current_user)):
-    session = await session_repo.get_count_session()
-    if not session:
-        raise HTTPException(404, "Rapor için oturum bulunamadı.")
+@router.get("/sessions")
+async def list_count_sessions(user: dict = Depends(get_current_user)):
+    sessions = await session_repo.get_all_sessions()
+    return [
+        {
+            "id": s["id"],
+            "name": s["name"],
+            "status": s["status"],
+            "started_at": s.get("started_at"),
+            "ended_at": s.get("ended_at"),
+            "excel_filename": s.get("excel_filename") or "",
+        }
+        for s in sessions
+    ]
 
+
+@router.get("/summary", response_model=ReportSummary)
+async def report_summary(
+    session_id: int | None = None,
+    user: dict = Depends(get_current_user),
+):
+    session = await _get_report_session(session_id)
     summary = await report_service.build_summary(session)
     latest = _latest_report_for_session(session["id"])
     return summary_to_report(summary, report_filename=latest)
@@ -117,8 +133,11 @@ async def download_report_file(
 
 
 @router.get("/export/excel")
-async def export_excel(user: dict = Depends(require_role(UserRole.ADMIN, UserRole.OPERATOR))):
-    session = await _get_report_session()
+async def export_excel(
+    session_id: int | None = None,
+    user: dict = Depends(require_role(UserRole.ADMIN, UserRole.OPERATOR)),
+):
+    session = await _get_report_session(session_id)
     summary = await report_service.build_summary(session)
     fname = f"sayim_raporu_{session['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     path = report_service.export_excel(summary, fname)
@@ -126,8 +145,11 @@ async def export_excel(user: dict = Depends(require_role(UserRole.ADMIN, UserRol
 
 
 @router.get("/export/pdf")
-async def export_pdf(user: dict = Depends(require_role(UserRole.ADMIN, UserRole.OPERATOR))):
-    session = await _get_report_session()
+async def export_pdf(
+    session_id: int | None = None,
+    user: dict = Depends(require_role(UserRole.ADMIN, UserRole.OPERATOR)),
+):
+    session = await _get_report_session(session_id)
     summary = await report_service.build_summary(session)
     fname = f"sayim_raporu_{session['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     path = report_service.export_pdf(summary, fname)
@@ -151,8 +173,11 @@ async def audit_logs(user: dict = Depends(require_role(UserRole.ADMIN))):
     ]
 
 
-async def _get_report_session() -> dict:
-    session = await session_repo.get_count_session()
+async def _get_report_session(session_id: int | None = None) -> dict:
+    if session_id:
+        session = await session_repo.get_session(session_id)
+    else:
+        session = await session_repo.get_count_session()
     if not session:
         raise HTTPException(404, "Rapor için oturum bulunamadı.")
     return session

@@ -67,6 +67,9 @@ class ReportService:
         cls,
         corrections: list[dict[str, Any]],
         not_found_rows: list[dict[str, Any]],
+        unknown: list[dict[str, Any]] | None = None,
+        unassigned: list[dict[str, Any]] | None = None,
+        short_items: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         entries: list[dict[str, Any]] = []
 
@@ -103,6 +106,38 @@ class ReportService:
                     "created_at": when,
                 }
             )
+
+        if unknown:
+            for u in unknown:
+                entries.append(
+                    {
+                        "etiket": u.get("reference", ""),
+                        "category": "Tanımsız Barkod",
+                        "message": f"Excel kayıtlarında bulunmayan etiket okutuldu ({u.get('scanned_qty', 1)} adet)",
+                        "expected_shelf": "—",
+                        "found_shelf": u.get("shelf", ""),
+                        "stok_no": "",
+                        "product_name": "",
+                        "username": u.get("username", ""),
+                        "created_at": u.get("last_scan_at", ""),
+                    }
+                )
+
+        if unassigned:
+            for ua in unassigned:
+                entries.append(
+                    {
+                        "etiket": ua.get("reference", ""),
+                        "category": "Atanmamış Bulunan",
+                        "message": f"Başka rafta/atanmamış olarak okutuldu ({ua.get('scanned_qty', 1)} adet)",
+                        "expected_shelf": "—",
+                        "found_shelf": ua.get("found_shelf", ""),
+                        "stok_no": "",
+                        "product_name": "",
+                        "username": ua.get("username", ""),
+                        "created_at": ua.get("counted_at", ""),
+                    }
+                )
 
         def sort_key(item: dict[str, Any]) -> str:
             return str(item.get("created_at") or "")
@@ -158,17 +193,23 @@ class ReportService:
             if r["tracking_status"] == CountTrackingStatus.TEKRAR_BULUNDU.value
         ]
 
-        correction_log = self.build_correction_log(corrections, not_found_rows)
+        correction_log = self.build_correction_log(
+            corrections=corrections,
+            not_found_rows=not_found_rows,
+            unknown=unknown,
+            unassigned=unassigned,
+            short_items=short,
+        )
 
         started = session.get("started_at")
         ended = session.get("ended_at") or datetime.utcnow().isoformat()
         duration = 0.0
         if started:
             try:
-                s = datetime.fromisoformat(started.replace("Z", "+00:00"))
-                e = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-                duration = (e - s).total_seconds() / 60.0
-            except ValueError:
+                s = datetime.fromisoformat(str(started).replace("Z", "+00:00")).replace(tzinfo=None)
+                e = datetime.fromisoformat(str(ended).replace("Z", "+00:00")).replace(tzinfo=None)
+                duration = abs((e - s).total_seconds()) / 60.0
+            except Exception:
                 pass
 
         total_expected = sum(i["expected"] for i in all_items)

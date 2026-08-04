@@ -46,11 +46,11 @@ export function ManualScanInput({ sessionActive, shelves, onShelfSelect }: Props
   };
 
   return (
-    <div className="shrink-0 bg-slate-950 border-b border-slate-700 px-3 py-2">
+    <div className={`shrink-0 border-b px-3 py-2 transition-colors ${!sessionActive ? "bg-amber-950/30 border-amber-500/40" : "bg-slate-950 border-slate-700"}`}>
       <label htmlFor="manual-scan-input" className="block text-xs text-slate-400 mb-1">
         Referans / Barkod Giriş
         {!sessionActive && (
-          <span className="text-amber-400 ml-2">(Önce Yönetim → Sayım Başlat)</span>
+          <span className="text-amber-400 font-semibold ml-2">⚠️ Sayım Başlatılmadı (Önce Yönetim → Sayım Başlat)</span>
         )}
       </label>
       <form
@@ -63,8 +63,16 @@ export function ManualScanInput({ sessionActive, shelves, onShelfSelect }: Props
           ref={inputRef}
           id="manual-scan-input"
           type="text"
-          placeholder="Etiket okutun veya raf kodu yazın (örn. B023), Enter"
-          className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 font-mono text-sm focus:outline-none focus:border-blue-500"
+          placeholder={
+            sessionActive
+              ? "Etiket okutun veya raf kodu yazın (örn. B023), Enter"
+              : "🔴 Sayım Oturumu Başlatılmadı — Önce Yönetim sekmesinden 'Sayım Başlat'a tıklayın"
+          }
+          className={`w-full border rounded px-3 py-2 font-mono text-sm focus:outline-none transition-colors ${
+            !sessionActive
+              ? "bg-amber-950/50 border-amber-600/60 text-amber-200 placeholder:text-amber-400/80"
+              : "bg-slate-800 border-slate-600 text-slate-100 placeholder:text-slate-500 focus:border-blue-500"
+          }`}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}

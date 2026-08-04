@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "../api";
 import {
   previewScanErrorSound,
   previewScanSuccessSound,
@@ -108,16 +109,30 @@ function PresetGrid<T extends string>({
 export function ScanSoundSettings() {
   const [settings, setSettings] = useState<ScanSoundSettings>(() => loadScanSoundSettings());
 
+  useEffect(() => {
+    api
+      .getSoundSettings()
+      .then((remote) => {
+        if (remote) {
+          setSettings(remote);
+          saveScanSoundSettings(remote);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const update = (patch: Partial<ScanSoundSettings>) => {
     const next = { ...settings, ...patch };
     setSettings(next);
     saveScanSoundSettings(next);
+    api.updateSoundSettings(next).catch(() => {});
   };
 
   const reset = () => {
     const next = { ...DEFAULT_SCAN_SOUND_SETTINGS };
     setSettings(next);
     saveScanSoundSettings(next);
+    api.updateSoundSettings(next).catch(() => {});
   };
 
   const previewSuccess = (preset: SuccessPresetId) => {

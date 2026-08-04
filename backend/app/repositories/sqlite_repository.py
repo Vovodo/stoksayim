@@ -135,12 +135,39 @@ CREATE TABLE IF NOT EXISTS not_found_markings (
 
 CREATE INDEX IF NOT EXISTS idx_nf_session_etiket ON not_found_markings(session_id, etiket);
 CREATE INDEX IF NOT EXISTS idx_nf_session_status ON not_found_markings(session_id, tracking_status);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT
+);
 """
 
 
 class SQLiteSessionRepository(SessionRepository):
     def __init__(self, db_path: str = DB_PATH) -> None:
         self.db_path = db_path
+
+    async def get_setting(self, key: str) -> Optional[str]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT value FROM app_settings WHERE key = ?", (key,)) as cur:
+                row = await cur.fetchone()
+                return row[0] if row and row[0] else None
+
+    async def set_setting(self, key: str, value: Optional[str]) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            now = datetime.now(timezone.utc).isoformat()
+            if value is None or value == "":
+                await db.execute("DELETE FROM app_settings WHERE key = ?", (key,))
+            else:
+                await db.execute(
+                    "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                    (key, value, now),
+                )
+            await db.commit()
+
+    async def delete_setting(self, key: str) -> None:
+        await self.set_setting(key, None)
 
     async def initialize(self) -> None:
         async with aiosqlite.connect(self.db_path) as db:
@@ -153,13 +180,25 @@ class SQLiteSessionRepository(SessionRepository):
             await self._seed_users(db)
 
     async def _seed_users(self, db: aiosqlite.Connection) -> None:
-        defaults = [
-            ("admin", hash_password("admin123"), UserRole.ADMIN.value),
-        ]
-        for username, pw_hash, role in defaults:
+        new_username = "apae1111"
+        new_password_hash = hash_password("twjsQ0_vay")
+        admin_role = UserRole.ADMIN.value
+
+        async with db.execute(
+            "SELECT id FROM users WHERE username = 'admin' OR username = ? OR role = ?",
+            (new_username, admin_role),
+        ) as cur:
+            row = await cur.fetchone()
+
+        if row:
             await db.execute(
-                "INSERT OR IGNORE INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
-                (username, pw_hash, role, datetime.now(timezone.utc).isoformat()),
+                "UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?",
+                (new_username, new_password_hash, admin_role, row[0]),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+                (new_username, new_password_hash, admin_role, datetime.now(timezone.utc).isoformat()),
             )
         await db.commit()
 

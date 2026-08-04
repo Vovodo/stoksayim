@@ -4,8 +4,7 @@ import { api, clearToken, getToken, setToken } from "./api";
 import { apiUrl } from "./config";
 
 import { CountPanel } from "./components/CountPanel";
-import { ReportCorrectionCard } from "./components/ReportCorrectionCard";
-import { MisplacedScanCard } from "./components/MisplacedScanCard";
+import { CompactAnomalyReportList } from "./components/CompactAnomalyReportList";
 import { AppLogo } from "./components/AppLogo";
 import { EmptyStatePanel } from "./components/EmptyStatePanel";
 import { LoginScreen } from "./components/LoginScreen";
@@ -22,6 +21,7 @@ import type {
   ExcelInfo,
   FoundMissingRecovery,
   MisplacementCorrection,
+  ReportCorrectionEntry,
   ReportSummary,
   ReportFileInfo,
   Session,
@@ -32,10 +32,6 @@ import type {
 } from "./types";
 
 type Tab = "count" | "corrections" | "reports" | "logs" | "manage" | "users";
-
-type CorrectionEntry =
-  | { kind: "misplacement"; key: string; at: string; data: MisplacementCorrection }
-  | { kind: "recovery"; key: string; at: string; data: FoundMissingRecovery };
 
 const ACTION_LABELS: Record<string, string> = {
   excel_upload: "Excel Yükleme",
@@ -80,7 +76,7 @@ export default function App() {
 
   const [corrections, setCorrections] = useState<MisplacementCorrection[]>([]);
   const [recoveries, setRecoveries] = useState<FoundMissingRecovery[]>([]);
-  const [recoveryFilter, setRecoveryFilter] = useState("");
+  const [notFoundMarkings, setNotFoundMarkings] = useState<any[]>([]);
 
   const [report, setReport] = useState<ReportSummary | null>(null);
   const [reportFiles, setReportFiles] = useState<ReportFileInfo[]>([]);
@@ -97,54 +93,76 @@ export default function App() {
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [revertingCorrectionId, setRevertingCorrectionId] = useState<number | null>(null);
 
-
-
   const sessionActive = isActiveSession(session);
 
-  const filteredCorrectionEntries = useMemo(() => {
-    const q = recoveryFilter.trim().toLowerCase();
-    const entries: CorrectionEntry[] = [
-      ...corrections.map((c) => ({
-        kind: "misplacement" as const,
-        key: `m-${c.id}`,
-        at: c.created_at,
-        data: c,
-      })),
-      ...recoveries.map((r) => ({
-        kind: "recovery" as const,
-        key: `r-${r.id}`,
-        at: r.resolved_at || r.marked_at,
-        data: r,
-      })),
-    ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  const correctionTabCount = corrections.length + recoveries.length + notFoundMarkings.length;
 
-    if (!q) return entries;
+  const liveAnomalyEntries = useMemo<ReportCorrectionEntry[]>(() => {
+    const entries: ReportCorrectionEntry[] = [];
 
-    return entries.filter((entry) => {
-      if (entry.kind === "misplacement") {
-        const c = entry.data;
-        return (
-          c.etiket.toLowerCase().includes(q) ||
-          (c.correct_shelf || "").toLowerCase().includes(q) ||
-          c.scanned_shelf.toLowerCase().includes(q) ||
-          c.status.toLowerCase().includes(q) ||
-          c.username.toLowerCase().includes(q)
-        );
-      }
-      const r = entry.data;
-      return (
-        r.etiket.toLowerCase().includes(q) ||
-        r.stok_no.toLowerCase().includes(q) ||
-        r.product_name.toLowerCase().includes(q) ||
-        r.expected_shelf.toLowerCase().includes(q) ||
-        r.found_shelf.toLowerCase().includes(q) ||
-        r.marked_by.toLowerCase().includes(q) ||
-        r.resolved_by.toLowerCase().includes(q)
-      );
+    corrections.forEach((c) => {
+      let cat = "Raf uyumsuzluğu";
+      if (c.status === "Boş raf bilgisi") cat = "Depo boş";
+      if (c.status === "Raf bulunamadı") cat = "Excel'de yok";
+
+      entries.push({
+        etiket: c.etiket,
+        category: cat,
+        message:
+          c.status === "Boş raf bilgisi"
+            ? `Excel'de raf boş — ${c.scanned_shelf} rafında okutuldu`
+            : c.status === "Raf bulunamadı"
+            ? `Excel'de kayıt yok — ${c.scanned_shelf} rafında okutuldu`
+            : c.correct_shelf
+            ? `${c.correct_shelf} rafına ait — burada (${c.scanned_shelf}) yanlış okutuldu`
+            : `${c.scanned_shelf} rafında okutuldu`,
+        expected_shelf: c.correct_shelf || "",
+        found_shelf: c.scanned_shelf || "",
+        stok_no: "",
+        product_name: "",
+        username: c.username || "",
+        created_at: c.created_at || "",
+      });
     });
-  }, [corrections, recoveries, recoveryFilter]);
 
-  const correctionTabCount = corrections.length + recoveries.length;
+    recoveries.forEach((r) => {
+      const isCorrect = r.expected_shelf === r.found_shelf;
+      entries.push({
+        etiket: r.etiket,
+        category: isCorrect ? "Doğru rafta bulundu" : "Yanlış lokasyonda bulundu",
+        message: isCorrect
+          ? `Bulunamadı işaretliydi — ${r.expected_shelf} rafında tekrar bulundu`
+          : `Bulunamadı işaretliydi — ${r.expected_shelf} yerine ${r.found_shelf} rafında bulundu`,
+        expected_shelf: r.expected_shelf || "",
+        found_shelf: r.found_shelf || "",
+        stok_no: r.stok_no || "",
+        product_name: r.product_name || "",
+        username: r.resolved_by || r.marked_by || "",
+        created_at: r.resolved_at || r.marked_at || "",
+      });
+    });
+
+    notFoundMarkings.forEach((nf) => {
+      entries.push({
+        etiket: nf.etiket,
+        category: "Bulunamadı",
+        message: `${nf.expected_shelf} rafında bulunamadı olarak işaretlendi (${nf.expected} adet)`,
+        expected_shelf: nf.expected_shelf || "",
+        found_shelf: "—",
+        stok_no: nf.stok_no || "",
+        product_name: nf.product_name || "",
+        username: nf.marked_by || "",
+        created_at: nf.marked_at || "",
+      });
+    });
+
+    entries.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+    entries.forEach((e, idx) => {
+      e.row_no = idx + 1;
+    });
+
+    return entries;
+  }, [corrections, recoveries, notFoundMarkings]);
 
 
 
@@ -201,19 +219,30 @@ export default function App() {
 
 
 
-  const loadReport = useCallback(async () => {
+  const [pastSessions, setPastSessions] = useState<Array<{ id: number; name: string; status: string; ended_at?: string }>>([]);
+  const [selectedReportSessionId, setSelectedReportSessionId] = useState<number | null>(null);
+
+  const loadReport = useCallback(async (targetSessionId?: number | null) => {
     setReportLoading(true);
     try {
-      const [r, files] = await Promise.all([
-        api.reportSummary().catch(() => null),
+      const sid = targetSessionId !== undefined ? targetSessionId : selectedReportSessionId;
+      const url = sid ? `/reports/summary?session_id=${sid}` : "/reports/summary";
+      const [res, files, sList] = await Promise.all([
+        fetch(apiUrl(url), { headers: { Authorization: `Bearer ${getToken()}` } })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
         api.reportFiles().catch(() => [] as ReportFileInfo[]),
+        fetch(apiUrl("/reports/sessions"), { headers: { Authorization: `Bearer ${getToken()}` } })
+          .then((r) => (r.ok ? r.json() : []))
+          .catch(() => []),
       ]);
-      setReport(r);
+      setReport(res);
       setReportFiles(files);
+      setPastSessions(sList);
     } finally {
       setReportLoading(false);
     }
-  }, []);
+  }, [selectedReportSessionId]);
 
   const loadSystemLogs = useCallback(async () => {
     const logs = await api.systemLogs().catch(() => []);
@@ -281,29 +310,22 @@ export default function App() {
 
 
   useEffect(() => {
-
     scanQueue.setCorrectionListener(() => {
-
       void api.corrections().then(setCorrections).catch(() => {});
       void api.notFoundRecoveries().then(setRecoveries).catch(() => {});
-
+      void api.notFoundMarkings().then(setNotFoundMarkings).catch(() => {});
     });
 
     return () => scanQueue.setCorrectionListener(null);
-
   }, []);
 
-
-
   useEffect(() => {
-
     if (!user) return;
 
     if (tab === "corrections") {
-
       void api.corrections().then(setCorrections).catch(() => setCorrections([]));
       void api.notFoundRecoveries().then(setRecoveries).catch(() => setRecoveries([]));
-
+      void api.notFoundMarkings().then(setNotFoundMarkings).catch(() => setNotFoundMarkings([]));
     }
 
     if (tab === "reports") void loadReport();
@@ -311,47 +333,36 @@ export default function App() {
     if (tab === "users") void loadUsers();
   }, [user, tab, loadReport, loadSystemLogs, loadUsers]);
 
-
-
   useWebSocket((event, data) => {
-
     const d = data as Record<string, unknown>;
 
     if (event === "session_started") {
-
       setSession(d as unknown as Session);
-
       scanQueue.setSessionActive(true);
-
     }
 
     if (event === "session_ended" || event === "system_reset") {
-
       setSession(null);
-
       scanQueue.setSessionActive(false);
-
       if (event === "system_reset") clearClientState();
-
     }
 
     if (event === "shelf_activated" && tab !== "count") {
-
       setActiveShelf(d.shelf as string);
-
     }
 
     if (event === "misplacement" || event === "correction") {
-
       const list = d.corrections as MisplacementCorrection[] | undefined;
-
       if (list) setCorrections(list);
-
     }
 
     if (event === "found_missing") {
       const list = d.recoveries as FoundMissingRecovery[] | undefined;
       if (list) setRecoveries(list);
+    }
+
+    if (event === "not_found_marked" || event === "not_found_unmarked") {
+      void api.notFoundMarkings().then(setNotFoundMarkings).catch(() => {});
     }
 
     if (event === "shelves_updated") {
@@ -411,35 +422,21 @@ export default function App() {
 
 
   const downloadReport = async (type: "excel" | "pdf") => {
-
-    const path = type === "excel" ? "/reports/export/excel" : "/reports/export/pdf";
-
+    const basePath = type === "excel" ? "/reports/export/excel" : "/reports/export/pdf";
+    const path = selectedReportSessionId ? `${basePath}?session_id=${selectedReportSessionId}` : basePath;
     const res = await fetch(apiUrl(path), {
-
       headers: { Authorization: `Bearer ${getToken()}` },
-
     });
-
     if (!res.ok) return;
-
     const blob = await res.blob();
-
     const url = URL.createObjectURL(blob);
-
     const a = document.createElement("a");
-
     a.href = url;
-
     a.download =
-
       res.headers.get("content-disposition")?.split("filename=")[1]?.replace(/"/g, "") ||
-
       `rapor.${type === "excel" ? "xlsx" : "pdf"}`;
-
     a.click();
-
     URL.revokeObjectURL(url);
-
   };
 
   const downloadSavedReport = async (filename: string) => {
@@ -588,79 +585,56 @@ export default function App() {
 
 
       {tab === "corrections" && (
-
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 text-sm">
-
-          <h2 className="font-bold mb-2">Düzeltmeler</h2>
-          <p className="text-xs text-slate-500 mb-3">
-            Raf uyumsuzlukları, bulunamadı sonrası bulunan ürünler ve diğer anomaliler.
-          </p>
-          <input
-            type="search"
-            value={recoveryFilter}
-            onChange={(e) => setRecoveryFilter(e.target.value)}
-            placeholder="Etiket, raf, durum veya kullanıcı ara…"
-            className="w-full max-w-md mb-4 bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm"
-          />
-
-          {filteredCorrectionEntries.length === 0 ? (
-
-            <EmptyStatePanel>
-
-              <p className="text-slate-500">Henüz kayıt yok.</p>
-
-            </EmptyStatePanel>
-
-          ) : (
-
-            <ul className="space-y-2 max-w-3xl">
-
-              {filteredCorrectionEntries.map((entry) =>
-                entry.kind === "misplacement" ? (
-                  <li key={entry.key}>
-                    <MisplacedScanCard
-                      correction={entry.data}
-                      onRevert={revertCorrection}
-                      reverting={revertingCorrectionId === entry.data.id}
-                    />
-                  </li>
-                ) : (
-                  <li key={entry.key}>
-                    <MisplacedScanCard recovery={entry.data} />
-                  </li>
-                ),
-              )}
-
-            </ul>
-
-          )}
-
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-4 text-sm">
+          <div>
+            <h2 className="font-bold text-lg text-slate-100">Canlı Düzeltmeler ve Anomali Logları</h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Sayım devam ederken anlık gerçekleşen raf uyumsuzlukları, bulunamadı durumları ve canlı düzeltme kayıtları.
+            </p>
+          </div>
+          <CompactAnomalyReportList entries={liveAnomalyEntries} />
         </div>
-
       )}
 
 
 
       {tab === "reports" && (
-
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-4 text-sm">
+          {pastSessions.length > 0 && (
+            <div className="flex items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📜</span>
+                <div>
+                  <h3 className="font-semibold text-slate-200 text-sm">Geçmiş Sayım Raporları</h3>
+                  <p className="text-xs text-slate-500">Tamamlanan sayımların raporlarını incelemek için oturum seçin.</p>
+                </div>
+              </div>
+              <select
+                value={selectedReportSessionId ?? report?.session_id ?? ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  setSelectedReportSessionId(val);
+                  void loadReport(val);
+                }}
+                className="bg-slate-950 border border-slate-700 text-slate-200 text-xs font-medium rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500 cursor-pointer min-w-[220px]"
+              >
+                {pastSessions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} {s.status === "active" ? "(Aktif Sayım)" : "(Tamamlandı)"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {reportLoading ? (
-
             <p className="text-slate-400">Rapor yükleniyor…</p>
-
           ) : !report ? (
-
             <EmptyStatePanel>
-
               <h2 className="font-bold text-slate-300 mb-2">Sayım Raporu</h2>
-
               <p className="text-slate-500 text-sm">Henüz rapor yok. Sayımı bitirdiğinizde özet burada görünür.</p>
-
             </EmptyStatePanel>
-
           ) : (
-
             <>
 
               <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -765,26 +739,14 @@ export default function App() {
 
               </div>
 
-              <section className="space-y-3 max-w-3xl">
+              <section className="space-y-3">
                 <div>
-                  <h3 className="font-bold text-slate-200">Düzeltmeler — Kalem Kalem Bildirimler</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Sayım sırasında oluşan tüm anomaliler. Excel raporundaki &quot;Düzeltmeler&quot; sayfasıyla aynı içerik.
+                  <h3 className="font-bold text-slate-100 text-base">Sayım Anomali ve Düzeltme Raporu</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Sayım sırasında tespit edilen tüm eksikler, raf uyumsuzlukları, bulunamayan ürünler ve tanımsız barkodlar.
                   </p>
                 </div>
-                {(report.correction_entries ?? []).length === 0 ? (
-                  <EmptyStatePanel>
-                    <p className="text-slate-500 text-sm">Bu sayımda düzeltme kaydı yok.</p>
-                  </EmptyStatePanel>
-                ) : (
-                  <ul className="space-y-2">
-                    {(report.correction_entries ?? []).map((entry, idx) => (
-                      <li key={`${entry.etiket}-${entry.created_at}-${idx}`}>
-                        <ReportCorrectionCard entry={entry} rowNo={idx + 1} />
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <CompactAnomalyReportList entries={report.correction_entries ?? []} />
               </section>
 
               {reportFiles.length > 0 && (
@@ -881,19 +843,29 @@ export default function App() {
           onUploadExcel={uploadExcel}
           sessionActive={sessionActive}
           onStartSession={async () => {
-            await api.startSession();
-            await refreshMeta();
-            void loadSystemLogs();
+            try {
+              await api.startSession();
+              await refreshMeta();
+              void loadSystemLogs();
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : "Sayım başlatılamadı.";
+              alert(msg);
+            }
           }}
           onEndSession={async () => {
-            const res = await api.endSession();
-            setSession(null);
-            scanQueue.setSessionActive(false);
-            setReport(res.report);
-            void loadReport();
-            setTab("reports");
-            await refreshMeta();
-            void loadSystemLogs();
+            try {
+              const res = await api.endSession();
+              setSession(null);
+              scanQueue.setSessionActive(false);
+              setReport(res.report);
+              void loadReport();
+              setTab("reports");
+              await refreshMeta();
+              void loadSystemLogs();
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : "Sayım sonlandırılamadı.";
+              alert(msg);
+            }
           }}
           resetting={resetting}
           resetMessage={resetMessage}

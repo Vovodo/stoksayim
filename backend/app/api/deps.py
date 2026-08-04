@@ -6,14 +6,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.core.security import decode_token
 from app.models.domain import UserRole
 from app.repositories.excel_repository import ExcelInventoryCache
-from app.repositories.sqlite_repository import SQLiteSessionRepository
+from app.repositories.app_database_repository import AppDatabaseRepository
 from app.services.count_service import CountService
 from app.services.report_service import ReportService
 
 security = HTTPBearer(auto_error=False)
 
 stock_repo = ExcelInventoryCache()
-session_repo = SQLiteSessionRepository()
+session_repo = AppDatabaseRepository()
 count_service = CountService(stock_repo, session_repo)
 report_service = ReportService(count_service)
 

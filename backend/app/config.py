@@ -1,7 +1,10 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_BACKEND_ROOT / ".env")
+
 _DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 _ENVIRONMENT = os.getenv("ENVIRONMENT", "development").strip().lower()
 
@@ -31,6 +34,7 @@ class Settings:
     algorithm: str = "HS256"
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
     cors_origins: list[str] = _parse_origins(os.getenv("ALLOWED_ORIGINS"))
+    database_url: str | None = os.getenv("DATABASE_URL")
 
     data_dir: Path = _DATA_DIR
     upload_dir: Path = (

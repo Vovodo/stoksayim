@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, Optional
 import asyncio
 
@@ -34,6 +35,7 @@ class CountService:
         self._scan_lock = asyncio.Lock()
         self._not_found_by_line: dict[str, dict[str, Any]] = {}
         self._not_found_active_by_etiket: dict[str, dict[str, Any]] = {}
+        self._misplacements_by_expected: dict[tuple[int, str, str], str] = {}
 
     async def _reload_not_found_cache(self, session_id: int) -> None:
         rows = await self.sessions.get_not_found_markings(session_id)
@@ -43,6 +45,14 @@ class CountService:
             self._not_found_by_line[row["line_id"]] = row
             if row["tracking_status"] == CountTrackingStatus.BULUNAMADI.value:
                 self._not_found_active_by_etiket[row["etiket"]] = row
+
+        m_rows = await self.sessions.get_misplacements(session_id)
+        self._misplacements_by_expected.clear()
+        for r in m_rows:
+            if r.get("correct_shelf"):
+                cs = normalize_depo(r["correct_shelf"])
+                if cs:
+                    self._misplacements_by_expected[(session_id, cs, r["etiket"])] = r["scanned_shelf"]
 
     @staticmethod
     def _extra_field(extra: dict[str, Any], *keys: str) -> str:
@@ -86,12 +96,30 @@ class CountService:
 
     async def start_session(self, name: str, user_id: int) -> dict:
         if not self.stock.is_loaded():
-            raise ValueError("Önce Excel dosyası yüklenmelidir.")
+            from pathlib import Path
+            from app.config import settings
+            upload_dir = Path(settings.upload_dir)
+            files = sorted(
+                list(upload_dir.glob("*.xlsx")) + list(upload_dir.glob("*.xls")),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if files:
+                try:
+                    self.stock.load_from_excel(str(files[0]))
+                    logger.info("Sayım başlatılırken Excel diskten otomatik yüklendi: %s", files[0].name)
+                except Exception as exc:
+                    logger.warning("Otomatik Excel yükleme başarısız: %s", exc)
+
+            if not self.stock.is_loaded():
+                raise ValueError("Sayıma başlamadan önce lütfen Yönetim sayfasından bir Excel dosyası yükleyin.")
 
         meta = self.stock.get_metadata()
-        session_id = await self.sessions.create_session(
+        session_res = await self.sessions.create_session(
             name, user_id, meta.get("filename", "")
         )
+        session_id = session_res["id"] if isinstance(session_res, dict) else session_res
+
         shelves = self.stock.get_shelves()
         initial_shelf = shelves[0] if shelves else None
         if initial_shelf:
@@ -104,6 +132,7 @@ class CountService:
         self._unassigned_cache.clear()
         self._not_found_by_line.clear()
         self._not_found_active_by_etiket.clear()
+        self._misplacements_by_expected.clear()
 
         await self.sessions.add_audit_log(
             user_id, "session_start", f"Sayım başlatıldı: {name}", session_id
@@ -113,7 +142,10 @@ class CountService:
             "session_start",
             f"Sayım başlatıldı: {name}",
         )
-        logger.info("Sayım oturumu başlatıldı: %s (id=%d)", name, session_id)
+        logger.info("Sayım oturumu başlatıldı: %s (id=%s)", name, session_id)
+        if isinstance(session_res, dict):
+            session_res["active_shelf"] = initial_shelf
+            return session_res
         return await self.sessions.get_session(session_id)
 
     async def end_session(self, user_id: int) -> int:
@@ -129,6 +161,13 @@ class CountService:
             "session_end",
             "Sayım tamamlandı",
         )
+        self.stock.clear()
+        self._scan_cache.clear()
+        self._unknown_cache.clear()
+        self._unassigned_cache.clear()
+        self._not_found_by_line.clear()
+        self._not_found_active_by_etiket.clear()
+        self._misplacements_by_expected.clear()
         self._active_session_id = None
         self._active_shelf = None
         return session_id
@@ -157,9 +196,13 @@ class CountService:
             raise ValueError("Aktif sayım oturumu yok.")
         shelf = normalize_depo(shelf)
         self._active_shelf = shelf
-        await self.sessions.set_active_shelf(self._active_session_id, shelf)
-        await self.sessions.add_audit_log(
-            user_id, "shelf_switch", f"Raf değiştirildi: {shelf}", self._active_session_id
+        # Async background update so UI shelf switch is instant (0ms latency)
+        import asyncio
+        asyncio.create_task(self.sessions.set_active_shelf(self._active_session_id, shelf))
+        asyncio.create_task(
+            self.sessions.add_audit_log(
+                user_id, "shelf_switch", f"Raf değiştirildi: {shelf}", self._active_session_id
+            )
         )
 
     _QTY_EPS = 1e-6
@@ -220,10 +263,11 @@ class CountService:
         return f"{primary} ({', '.join(others)})"
 
     async def get_corrections(self, session_id: Optional[int] = None) -> list[dict[str, Any]]:
-        if session_id is not None:
-            rows = await self.sessions.get_misplacements(session_id)
+        sid = session_id if session_id is not None else self._active_session_id
+        if sid is not None:
+            rows = await self.sessions.get_misplacements(sid)
         else:
-            rows = await self.sessions.get_all_misplacements()
+            rows = []
         return [
             {
                 "id": r["id"],
@@ -297,8 +341,12 @@ class CountService:
         marked: list[dict[str, Any]] = []
 
         shelf_items = {ln["line_id"]: ln for ln in self.stock.get_shelf_items(shelf)}
+        to_insert: list[tuple[int, str, str, str, float, str, str, int, str, str]] = []
+        now = datetime.now(timezone.utc).isoformat()
+
         for line_id in line_ids:
-            if line_id in self._not_found_by_line:
+            existing = self._not_found_by_line.get(line_id)
+            if existing and isinstance(existing, dict) and existing.get("tracking_status") == CountTrackingStatus.BULUNAMADI.value:
                 continue
             item = shelf_items.get(line_id)
             if not item:
@@ -309,7 +357,7 @@ class CountService:
             extra = item.get("extra", {})
             stok = self._extra_field(extra, "Stok No", "Stok No.", "Stok Kodu", "Stok Kod")
             pname = self._extra_field(extra, "Tanım", "Tanim", "Ürün Adı", "Urun Adi", "Açıklama")
-            row = await self.sessions.insert_not_found_marking(
+            to_insert.append((
                 self._active_session_id,
                 line_id,
                 item["etiket"],
@@ -318,29 +366,34 @@ class CountService:
                 stok,
                 pname,
                 user_id,
-            )
-            self._not_found_by_line[line_id] = row
-            self._not_found_active_by_etiket[item["etiket"]] = row
-            marked.append(row)
+                now,
+                CountTrackingStatus.BULUNAMADI.value,
+            ))
 
-            await self.sessions.add_audit_log(
-                user_id,
-                "not_found_mark",
-                f"{item['etiket']} bulunamadı işaretlendi @ {shelf}",
-                self._active_session_id,
-            )
-            await self.sessions.add_system_event(
-                user_id,
-                "not_found_mark",
-                f"{item['etiket']} @ {shelf} bulunamadı olarak işaretlendi",
-            )
-            logger.info(
-                "NOT_FOUND_MARK etiket=%r line_id=%r shelf=%r user=%d",
-                item["etiket"],
-                line_id,
-                shelf,
-                user_id,
-            )
+        if to_insert:
+            rows = await self.sessions.insert_not_found_markings_batch(to_insert)
+            for row in rows:
+                lid = row["line_id"]
+                et = row["etiket"]
+                self._not_found_by_line[lid] = row
+                self._not_found_active_by_etiket[et] = row
+                marked.append(row)
+
+                asyncio.create_task(
+                    self.sessions.add_audit_log(
+                        user_id,
+                        "not_found_mark",
+                        f"{et} bulunamadı işaretlendi @ {shelf}",
+                        self._active_session_id,
+                    )
+                )
+                asyncio.create_task(
+                    self.sessions.add_system_event(
+                        user_id,
+                        "not_found_mark",
+                        f"{et} @ {shelf} bulunamadı olarak işaretlendi",
+                    )
+                )
 
         return {"marked_count": len(marked), "line_ids": [m["line_id"] for m in marked]}
 
@@ -405,6 +458,25 @@ class CountService:
                 "resolved_at": r.get("resolved_at"),
                 "marked_by": r.get("marked_by_name") or "",
                 "resolved_by": r.get("resolved_by_name") or "",
+            }
+            for r in rows
+        ]
+
+    async def get_active_not_found_markings(self) -> list[dict[str, Any]]:
+        if not self._active_session_id:
+            return []
+        rows = await self.sessions.get_not_found_markings(self._active_session_id)
+        return [
+            {
+                "id": r["id"],
+                "etiket": r["etiket"],
+                "expected_shelf": r["expected_shelf"],
+                "expected": r["expected"],
+                "stok_no": r.get("stok_no") or "",
+                "product_name": r.get("product_name") or "",
+                "tracking_status": r["tracking_status"],
+                "marked_at": r["marked_at"],
+                "marked_by": r.get("marked_by_name") or "",
             }
             for r in rows
         ]
@@ -536,6 +608,72 @@ class CountService:
             found_missing=True,
         )
 
+    FINISH_COMMANDS = {
+        "CMD:FINISH_SHELF",
+        "CMD_FINISH_SHELF",
+        "RAFI_BITIR",
+        "CMD:RAFI_BITIR",
+        "FINISH_SHELF",
+    }
+
+    async def _handle_finish_shelf_command(
+        self, user_id: int, shelf_override: Optional[str] = None
+    ) -> ScanResult:
+        active_shelf = normalize_depo(shelf_override or self._active_shelf or "")
+        if not active_shelf:
+            raise ValueError("Aktif raf seçilmedi. Lütfen bir raf seçin veya sol listeden tıklayın.")
+
+        items_raw = self.stock.get_shelf_items(active_shelf)
+        if not items_raw:
+            raise ValueError(f"'{active_shelf}' rafında kayıtlı ürün bulunamadı.")
+
+        line_ids_to_mark = []
+        for item in items_raw:
+            line_id = item["line_id"]
+            if line_id in self._not_found_by_line:
+                continue
+            if (self._active_session_id, active_shelf, item["etiket"]) in self._misplacements_by_expected:
+                continue
+            scanned = self._scan_cache.get(line_id, 0.0)
+            expected = item["expected"]
+            if scanned < expected - self._QTY_EPS:
+                line_ids_to_mark.append(line_id)
+
+        if not line_ids_to_mark:
+            msg = f"'{active_shelf}' rafı tamamlandı. Eksik kalan ürünlerin tamamı 'Bulunamadı' olarak işaretlendi."
+            return ScanResult(
+                etiket="CMD:FINISH_SHELF",
+                shelf=active_shelf,
+                scan_type=ScanType.NORMAL,
+                expected=0.0,
+                scanned=0.0,
+                status=ItemStatus.COMPLETE,
+                message=msg,
+                auto_switched_shelf=False,
+            )
+
+        res = await self.mark_not_found(active_shelf, line_ids_to_mark, user_id)
+        marked_count = res.get("marked_count", 0)
+
+        msg = f"'{active_shelf}' rafı tamamlandı! {marked_count} adet eksik ürün 'Bulunamadı' olarak işaretlendi."
+
+        logger.info(
+            "FINISH_SHELF_COMMAND shelf=%r marked_count=%d",
+            active_shelf,
+            marked_count,
+        )
+
+        return ScanResult(
+            etiket="CMD:FINISH_SHELF",
+            shelf=active_shelf,
+            scan_type=ScanType.NORMAL,
+            expected=0.0,
+            scanned=0.0,
+            status=ItemStatus.COMPLETE,
+            message=msg,
+            auto_switched_shelf=False,
+        )
+
     async def process_scan(
         self,
         etiket: str,
@@ -548,6 +686,9 @@ class CountService:
         code = normalize_scanned_code(etiket)
         if not code:
             raise ValueError("Geçersiz etiket kodu.")
+
+        if code.upper() in self.FINISH_COMMANDS:
+            return await self._handle_finish_shelf_command(user_id, shelf_override)
 
         logger.info(
             "SCAN_DEBUG raw=%r normalized=%r active_shelf=%r",
@@ -660,15 +801,17 @@ class CountService:
             active_shelf,
         )
 
-        await self.sessions.record_scan(
-            self._active_session_id,
-            user_id,
-            code,
-            active_shelf,
-            ScanType.NORMAL.value,
-            expected,
-            scanned,
-            line_id=line_id,
+        asyncio.create_task(
+            self.sessions.record_scan(
+                self._active_session_id,
+                user_id,
+                code,
+                active_shelf,
+                ScanType.NORMAL.value,
+                expected,
+                scanned,
+                line_id=line_id,
+            )
         )
 
         status = self._item_status(expected, scanned)
@@ -693,27 +836,38 @@ class CountService:
         correct_shelf: str,
         user_id: int,
     ) -> ScanResult:
-        await self.sessions.record_misplacement(
-            self._active_session_id,
-            user_id,
-            code,
-            correct_shelf,
-            scanned_shelf,
+        if self._active_session_id and correct_shelf:
+            cs = normalize_depo(correct_shelf)
+            if cs:
+                self._misplacements_by_expected[(self._active_session_id, cs, code)] = scanned_shelf
+
+        asyncio.create_task(
+            self.sessions.record_misplacement(
+                self._active_session_id,
+                user_id,
+                code,
+                correct_shelf,
+                scanned_shelf,
+            )
         )
-        await self.sessions.record_scan(
-            self._active_session_id,
-            user_id,
-            code,
-            scanned_shelf,
-            ScanType.MISPLACED.value,
-            0.0,
-            0.0,
+        asyncio.create_task(
+            self.sessions.record_scan(
+                self._active_session_id,
+                user_id,
+                code,
+                scanned_shelf,
+                ScanType.MISPLACED.value,
+                0.0,
+                0.0,
+            )
         )
-        await self.sessions.add_audit_log(
-            user_id,
-            "misplacement",
-            f"{code}: doğru={correct_shelf}, okutulan={scanned_shelf}",
-            self._active_session_id,
+        asyncio.create_task(
+            self.sessions.add_audit_log(
+                user_id,
+                "misplacement",
+                f"{code}: doğru={correct_shelf}, okutulan={scanned_shelf}",
+                self._active_session_id,
+            )
         )
 
         msg = (
@@ -749,31 +903,39 @@ class CountService:
         scanned = self._apply_metraj_scan(prev_scanned, expected)
         self._unassigned_cache[key] = scanned
 
-        await self.sessions.record_scan(
-            self._active_session_id,
-            user_id,
-            code,
-            current_shelf,
-            ScanType.UNASSIGNED.value,
-            expected,
-            scanned,
+        asyncio.create_task(
+            self.sessions.record_scan(
+                self._active_session_id,
+                user_id,
+                code,
+                current_shelf,
+                ScanType.UNASSIGNED.value,
+                expected,
+                scanned,
+            )
         )
-        await self.sessions.upsert_unassigned_found(
-            self._active_session_id, code, current_shelf, user_id, expected
+        asyncio.create_task(
+            self.sessions.upsert_unassigned_found(
+                self._active_session_id, code, current_shelf, user_id, expected
+            )
         )
-        await self.sessions.record_correction(
-            self._active_session_id,
-            user_id,
-            code,
-            current_shelf,
-            "Boş raf bilgisi",
-            "",
+        asyncio.create_task(
+            self.sessions.record_correction(
+                self._active_session_id,
+                user_id,
+                code,
+                current_shelf,
+                "Boş raf bilgisi",
+                "",
+            )
         )
-        await self.sessions.add_audit_log(
-            user_id,
-            "empty_shelf",
-            f"{code}: Excel depo boş, okutulan={current_shelf}",
-            self._active_session_id,
+        asyncio.create_task(
+            self.sessions.add_audit_log(
+                user_id,
+                "empty_shelf",
+                f"{code}: Excel depo boş, okutulan={current_shelf}",
+                self._active_session_id,
+            )
         )
 
         status = self._item_status(expected, scanned)
@@ -800,25 +962,31 @@ class CountService:
         scanned = self._unknown_cache.get(key, 0.0) + 1.0
         self._unknown_cache[key] = scanned
 
-        await self.sessions.record_scan(
-            self._active_session_id,
-            user_id,
-            code,
-            shelf,
-            ScanType.UNKNOWN.value,
-            0.0,
-            scanned,
+        asyncio.create_task(
+            self.sessions.record_scan(
+                self._active_session_id,
+                user_id,
+                code,
+                shelf,
+                ScanType.UNKNOWN.value,
+                0.0,
+                scanned,
+            )
         )
-        await self.sessions.upsert_unknown(
-            self._active_session_id, code, shelf, user_id, 1.0
+        asyncio.create_task(
+            self.sessions.upsert_unknown(
+                self._active_session_id, code, shelf, user_id, 1.0
+            )
         )
-        await self.sessions.record_correction(
-            self._active_session_id,
-            user_id,
-            code,
-            shelf,
-            "Raf bulunamadı",
-            "",
+        asyncio.create_task(
+            self.sessions.record_correction(
+                self._active_session_id,
+                user_id,
+                code,
+                shelf,
+                "Raf bulunamadı",
+                "",
+            )
         )
 
         return ScanResult(
@@ -880,12 +1048,19 @@ class CountService:
             scanned = self._heal_inflated_scan(line_id, expected, scanned)
             nf = self._not_found_by_line.get(line_id)
             tracking = nf["tracking_status"] if nf else None
+
+            extra = dict(item.get("extra", {}))
+            found_elsewhere_shelf = self._misplacements_by_expected.get((self._active_session_id, shelf, code))
+            if found_elsewhere_shelf and not tracking and scanned <= 0:
+                tracking = CountTrackingStatus.YANLIS_LOKASYONDA.value
+                extra["scanned_elsewhere"] = found_elsewhere_shelf
+
             si = ShelfItem(
                 line_id=line_id,
                 etiket=code,
                 expected=expected,
                 scanned=scanned,
-                extra=item.get("extra", {}),
+                extra=extra,
                 tracking_status=tracking,
             )
             items.append(si)
@@ -893,7 +1068,7 @@ class CountService:
             stats.total_scanned += scanned
             if tracking == CountTrackingStatus.BULUNAMADI.value:
                 stats.not_found_etikets += 1
-            if si.status == ItemStatus.COMPLETE:
+            elif tracking == CountTrackingStatus.YANLIS_LOKASYONDA.value or si.status == ItemStatus.COMPLETE:
                 stats.completed_etikets += 1
             elif si.status == ItemStatus.SHORT:
                 stats.short_etikets += 1

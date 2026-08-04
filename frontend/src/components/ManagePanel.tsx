@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { AppLogo } from "./AppLogo";
 import { ScanSoundSettings } from "./ScanSoundSettings";
+import { FinishShelfQrCard } from "./FinishShelfQrCard";
+import { SupabaseStorageSettingsCard } from "./SupabaseStorageSettingsCard";
 import type { ExcelInfo } from "../types";
 
 interface ManagePanelProps {
@@ -99,6 +101,8 @@ export function ManagePanel({
   onResetSystem,
 }: ManagePanelProps) {
   const [sessionBusy, setSessionBusy] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmInput, setConfirmInput] = useState("");
 
   const handleStart = async () => {
     setSessionBusy(true);
@@ -109,7 +113,10 @@ export function ManagePanel({
     }
   };
 
-  const handleEnd = async () => {
+  const handleConfirmEnd = async () => {
+    if (confirmInput.trim().toUpperCase() !== "BİTİR") return;
+    setShowConfirmModal(false);
+    setConfirmInput("");
     setSessionBusy(true);
     try {
       await onEndSession();
@@ -207,7 +214,7 @@ export function ManagePanel({
               type="button"
               disabled={!excelInfo.loaded || sessionBusy}
               onClick={() => void handleStart()}
-              className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-semibold py-3 px-4 shadow-lg shadow-blue-900/30 transition-all"
+              className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-white font-semibold py-3 px-4 shadow-lg shadow-blue-900/30 transition-all cursor-pointer"
             >
               {sessionBusy ? "Başlatılıyor…" : "Sayım Başlat"}
             </button>
@@ -219,14 +226,21 @@ export function ManagePanel({
               <button
                 type="button"
                 disabled={sessionBusy}
-                onClick={() => void handleEnd()}
-                className="w-full rounded-xl bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500 disabled:opacity-50 text-white font-semibold py-3 px-4 transition-all"
+                onClick={() => {
+                  setConfirmInput("");
+                  setShowConfirmModal(true);
+                }}
+                className="w-full rounded-xl bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500 disabled:opacity-50 text-white font-semibold py-3 px-4 transition-all cursor-pointer shadow-lg shadow-red-950/40"
               >
                 {sessionBusy ? "Bitiriliyor…" : "Sayımı Bitir"}
               </button>
             </div>
           )}
         </SectionCard>
+
+        <FinishShelfQrCard />
+
+        <SupabaseStorageSettingsCard />
 
         <ScanSoundSettings />
 
@@ -240,7 +254,7 @@ export function ManagePanel({
             type="button"
             disabled={resetting}
             onClick={() => void onResetSystem()}
-            className="rounded-xl border border-red-500/40 bg-red-950/40 hover:bg-red-900/40 disabled:opacity-50 text-red-300 font-medium py-2.5 px-4 transition-colors"
+            className="rounded-xl border border-red-500/40 bg-red-950/40 hover:bg-red-900/40 disabled:opacity-50 text-red-300 font-medium py-2.5 px-4 transition-colors cursor-pointer"
           >
             {resetting ? "Sıfırlanıyor…" : "Tüm Yapıyı Sıfırla"}
           </button>
@@ -262,6 +276,56 @@ export function ManagePanel({
           <p className="text-[10px] text-slate-600 mt-3">Sürüm 1.0</p>
         </section>
       </div>
+
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-400">
+              <span className="text-2xl">⚠️</span>
+              <h3 className="text-lg font-bold text-slate-100">Sayımı Bitirmek İstiyor Musunuz?</h3>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Sayım sonlandırılacak, raporlar ve düzeltme logları veritabanında kalıcı olarak saklanacak, aktif stok verisi ise yeni sayım için temizlenecektir.
+            </p>
+
+            <div className="space-y-2 pt-2">
+              <label className="block text-xs font-semibold text-slate-300">
+                İşlemi onaylamak için aşağıya <span className="text-red-400 font-mono font-bold">BİTİR</span> yazın:
+              </label>
+              <input
+                type="text"
+                value={confirmInput}
+                onChange={(e) => setConfirmInput(e.target.value)}
+                placeholder="BİTİR yazın"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono text-white placeholder-slate-600 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirmModal(false);
+                  setConfirmInput("");
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={confirmInput.trim().toUpperCase() !== "BİTİR" || sessionBusy}
+                onClick={() => void handleConfirmEnd()}
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-500 disabled:opacity-30 disabled:hover:bg-red-600 text-white shadow-lg shadow-red-950 transition-all cursor-pointer"
+              >
+                {sessionBusy ? "Bitiriliyor…" : "Evet, Sayımı Bitir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -81,10 +81,10 @@ export const api = {
 
   activeSession: () => request<import("./types").Session | null>("/sessions/active"),
 
-  scan: (etiket: string) =>
+  scan: (etiket: string, shelfOverride?: string) =>
     request<import("./types").ScanResult>("/scan", {
       method: "POST",
-      body: JSON.stringify({ etiket }),
+      body: JSON.stringify({ etiket, shelf_override: shelfOverride }),
     }),
 
   shelves: () => request<import("./types").ShelfSummary[]>("/shelves"),
@@ -102,6 +102,8 @@ export const api = {
   unassignedFound: () => request<import("./types").UnassignedFound[]>("/unassigned-found"),
 
   corrections: () => request<import("./types").MisplacementCorrection[]>("/corrections"),
+
+  notFoundMarkings: () => request<any[]>("/not-found/markings"),
 
   revertCorrection: (correctionId: number) =>
     request<void>(`/corrections/${correctionId}`, { method: "DELETE" }),
@@ -143,4 +145,63 @@ export const api = {
     ),
 
   systemLogs: () => request<import("./types").SystemEvent[]>("/system/logs"),
+
+  getStorageSettings: () =>
+    request<{
+      configured: boolean;
+      supabase_url: string | null;
+      storage_bucket: string | null;
+      service_role_key_masked: string | null;
+      backend: "local" | "supabase";
+      status: "disabled" | "ready" | "error";
+      last_error: string | null;
+      last_check_at: string | null;
+    }>("/system/storage"),
+
+  updateStorageSettings: (data: {
+    supabase_url?: string;
+    service_role_key?: string;
+    clear_service_role_key?: boolean;
+    storage_bucket?: string;
+  }) =>
+    request<{
+      configured: boolean;
+      supabase_url: string | null;
+      storage_bucket: string | null;
+      service_role_key_masked: string | null;
+      backend: "local" | "supabase";
+      status: "disabled" | "ready" | "error";
+      last_error: string | null;
+      last_check_at: string | null;
+    }>("/system/storage", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  testStorageConnection: () =>
+    request<{
+      ok: boolean;
+      message: string;
+      settings: Record<string, unknown>;
+    }>("/system/storage/test", {
+      method: "POST",
+    }),
+
+  getDbStatus: () =>
+    request<{
+      status: "ready" | "error";
+      connected: boolean;
+      db_type: string;
+      active_session: string | null;
+      message: string;
+    }>("/system/db-status"),
+
+  getSoundSettings: () =>
+    request<import("./scan/scanSoundSettings").ScanSoundSettings>("/system/sound-settings"),
+
+  updateSoundSettings: (data: Partial<import("./scan/scanSoundSettings").ScanSoundSettings>) =>
+    request<import("./scan/scanSoundSettings").ScanSoundSettings>("/system/sound-settings", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };

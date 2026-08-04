@@ -12,26 +12,44 @@ from app.config import settings
 from app.core.logging import logger
 
 
-def _load_persisted_excel() -> None:
-    """Diskteki son Excel dosyasını bir kez RAM cache'e yükle (startup)."""
+async def _load_persisted_excel() -> None:
+    """Diskteki veya Supabase Storage'daki son Excel dosyasını RAM cache'e yükle (startup)."""
     if stock_repo.is_loaded():
         logger.info("Excel RAM cache zaten yüklü — startup atlandı.")
         return
+
     uploads = sorted(
         settings.upload_dir.glob("*.xlsx"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
     if not uploads:
-        xls = sorted(
+        uploads = sorted(
             settings.upload_dir.glob("*.xls"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
-        uploads = xls
+
+    if not uploads:
+        try:
+            from app.services.storage_settings_service import StorageSettingsService
+            storage_svc = StorageSettingsService(session_repo)
+            supabase_storage = await storage_svc.get_supabase_storage()
+            latest_filename = await session_repo.get_setting("latest_excel_filename")
+            if supabase_storage and latest_filename:
+                excel_bytes = await supabase_storage.read(f"excel/{latest_filename}")
+                if excel_bytes:
+                    dest = settings.upload_dir / latest_filename
+                    dest.write_bytes(excel_bytes)
+                    uploads = [dest]
+                    logger.info("Startup: Supabase Storage'dan Excel dosyası indirildi ve senkronize edildi: %s", latest_filename)
+        except Exception as exc:
+            logger.warning("Startup Supabase Storage Excel indirme hatası: %s", exc)
+
     if not uploads:
         logger.info("Startup: uploads klasöründe Excel yok — cache boş.")
         return
+
     latest = uploads[0]
     try:
         stock_repo.load_from_excel(str(latest))
@@ -84,7 +102,7 @@ def _mount_frontend(app: FastAPI) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await session_repo.initialize()
-    _load_persisted_excel()
+    await _load_persisted_excel()
     await count_service.reload_session_state()
     logger.info(
         "Depo Sayım başlatıldı (env=%s, data=%s, excel=%s, oturum=%s).",

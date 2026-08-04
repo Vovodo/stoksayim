@@ -142,6 +142,7 @@ export interface FoundMissingRecovery {
 }
 
 export interface ReportCorrectionEntry {
+  row_no?: number;
   etiket: string;
   category: string;
   message: string;
