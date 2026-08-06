@@ -39,8 +39,8 @@ CREATE TABLE IF NOT EXISTS scan_events (
     reference TEXT NOT NULL,
     shelf TEXT NOT NULL,
     scan_type TEXT NOT NULL,
-    expected REAL DEFAULT 0,
-    scanned REAL DEFAULT 0,
+    expected DOUBLE PRECISION DEFAULT 0,
+    scanned DOUBLE PRECISION DEFAULT 0,
     scanned_at TEXT NOT NULL,
     line_id TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions(id),
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS unknown_items (
     session_id INTEGER NOT NULL,
     reference TEXT NOT NULL,
     shelf TEXT NOT NULL,
-    scanned_qty REAL DEFAULT 0,
+    scanned_qty DOUBLE PRECISION DEFAULT 0,
     user_id INTEGER NOT NULL,
     last_scan_at TEXT NOT NULL,
     UNIQUE(session_id, reference, shelf),
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS unassigned_found (
     session_id INTEGER NOT NULL,
     reference TEXT NOT NULL,
     found_shelf TEXT NOT NULL,
-    scanned_qty REAL DEFAULT 0,
+    scanned_qty DOUBLE PRECISION DEFAULT 0,
     status TEXT DEFAULT 'BULUNDU',
     user_id INTEGER NOT NULL,
     counted_at TEXT NOT NULL,
@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     action TEXT NOT NULL,
     details TEXT,
     created_at TEXT NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_scan_session ON scan_events(session_id);
@@ -119,7 +120,7 @@ CREATE TABLE IF NOT EXISTS not_found_markings (
     line_id TEXT NOT NULL,
     etiket TEXT NOT NULL,
     expected_shelf TEXT NOT NULL,
-    expected REAL NOT NULL DEFAULT 0,
+    expected DOUBLE PRECISION NOT NULL DEFAULT 0,
     stok_no TEXT DEFAULT '',
     product_name TEXT DEFAULT '',
     tracking_status TEXT NOT NULL DEFAULT 'BULUNAMADI',

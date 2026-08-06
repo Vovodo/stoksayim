@@ -11,12 +11,14 @@ export function toastKindFromScan(r: Pick<ScanResult, "scan_type" | "status" | "
   return "normal";
 }
 
-const QTY_EPS = 1e-6;
+const QTY_EPS = 1e-3;
 
 export function computeStatus(expected: number, scanned: number): ItemStatus {
-  if (scanned <= 0) return "pending";
-  if (Math.abs(scanned - expected) <= QTY_EPS) return "complete";
-  if (scanned < expected - QTY_EPS) return "short";
+  const exp = Math.round((expected || 0) * 1000) / 1000;
+  const scn = Math.round((scanned || 0) * 1000) / 1000;
+  if (scn <= 0) return "pending";
+  if (Math.abs(scn - exp) <= QTY_EPS) return "complete";
+  if (scn < exp) return "short";
   return "over";
 }
 

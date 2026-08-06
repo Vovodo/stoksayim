@@ -89,8 +89,17 @@ function ShelfItemRowInner({
       <div className="text-right shrink-0 ml-2 flex flex-col items-end gap-1">
         <div className="text-xs">{trackText || statusLabel(item.status)}</div>
         <div className="font-mono text-sm">
-          <span className="font-bold">{item.scanned}</span>
-          <span className="text-slate-400">/{item.expected}</span>
+          <span className="font-bold">
+            {typeof item.scanned === "number"
+              ? Number((Math.round(item.scanned * 1000) / 1000).toFixed(3))
+              : item.scanned}
+          </span>
+          <span className="text-slate-400">
+            /
+            {typeof item.expected === "number"
+              ? Number((Math.round(item.expected * 1000) / 1000).toFixed(3))
+              : item.expected}
+          </span>
         </div>
         {canUnmarkNotFound && onUnmarkNotFound ? (
           <button
