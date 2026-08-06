@@ -213,42 +213,22 @@ class CountService:
     _QTY_EPS = 1e-3
 
     def _item_status(self, expected: float, scanned: float) -> ItemStatus:
-        exp = round(float(expected or 0), 3)
-        scn = round(float(scanned or 0), 3)
-        if scn <= 0:
+        if scanned <= 0:
             return ItemStatus.PENDING
-        if abs(scn - exp) <= self._QTY_EPS:
-            return ItemStatus.COMPLETE
-        if scn < exp:
-            return ItemStatus.SHORT
-        return ItemStatus.OVER
+        return ItemStatus.COMPLETE
 
     @staticmethod
     def _apply_metraj_scan(prev: float, line_expected: float) -> float:
-        """İlk okutma = satırın beklenen miktarı. Etiket okutulduğunda miktarı tam olarak eşleşir."""
+        """Etiket okutulduğunda okutulan miktar doğrudan etikete ait özgün miktardır."""
         return round(float(line_expected or 0), 3)
 
     def _heal_inflated_scan(self, line_id: str, expected: float, scanned: float) -> float:
-        """Eski hatadan kalan katlanmış okutma değerlerini veya float hassasiyet sapmalarını düzelt."""
+        """Etiket var ise okutulan miktar her zaman o etiket için tanımlı beklenen miktardır."""
         exp = round(float(expected or 0), 3)
-        scn = round(float(scanned or 0), 3)
-        if exp <= 0:
-            return scn
-
-        # Float hassasiyet sapmasını düzelt (örn. 34.400001525878906 -> 34.4)
-        if abs(scn - exp) <= 0.01:
+        if scanned > 0:
             self._scan_cache[line_id] = exp
             return exp
-
-        if scn <= exp + self._QTY_EPS:
-            return scn
-
-        ratio = scn / exp
-        n = round(ratio)
-        if n >= 2 and abs(ratio - n) <= 0.02:
-            self._scan_cache[line_id] = exp
-            return exp
-        return scn
+        return 0.0
 
     def _resolve_scan_line(self, code: str, target_shelf: str) -> dict[str, Any]:
         """Etiket için hedef raftaki sayılacak Excel satırını seç (line_id)."""
