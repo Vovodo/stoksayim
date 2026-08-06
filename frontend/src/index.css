@@ -71,6 +71,214 @@ body {
   border-color: rgb(59 130 246 / 0.6);
 }
 
+/* Ekranın Orta Üstünde Düzeltme / Anomali Toast Banner'ı */
+.anomaly-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-24px);
+  z-index: 10001;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 560px;
+  width: calc(100vw - 32px);
+}
+
+.anomaly-toast.anomaly-toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+.anomaly-toast-card {
+  position: relative;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(16px);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 20px 30px -5px rgba(0, 0, 0, 0.6), 0 10px 15px -5px rgba(0, 0, 0, 0.4);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+}
+
+.anomaly-toast-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.anomaly-toast-icon-wrap {
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.anomaly-toast-header-text {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.anomaly-toast-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  line-height: 1.2;
+}
+
+.anomaly-toast-main-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.3;
+}
+
+.anomaly-toast-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.anomaly-toast-close:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.anomaly-toast-content {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.anomaly-toast-etiket-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(71, 85, 105, 0.6);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.anomaly-toast-etiket-tag .label {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.anomaly-toast-etiket-tag .val {
+  color: #38bdf8;
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+}
+
+.anomaly-toast-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #cbd5e1;
+}
+
+.anomaly-toast-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.2);
+  transform-origin: left;
+  animation: anomaly-toast-shrink linear forwards;
+}
+
+@keyframes anomaly-toast-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* Anomali renk temaları */
+.anomaly-toast[data-kind="misplaced"] .anomaly-toast-card {
+  border-color: rgba(249, 115, 22, 0.8);
+  box-shadow: 0 0 30px rgba(249, 115, 22, 0.25), 0 20px 30px -5px rgba(0, 0, 0, 0.6);
+}
+.anomaly-toast[data-kind="misplaced"] .anomaly-toast-main-title {
+  color: #fb923c;
+}
+.anomaly-toast[data-kind="misplaced"] .anomaly-toast-progress-bar {
+  background: linear-gradient(to right, #f97316, #fbbf24);
+}
+
+.anomaly-toast[data-kind="unknown"] .anomaly-toast-card {
+  border-color: rgba(239, 68, 68, 0.8);
+  box-shadow: 0 0 30px rgba(239, 68, 68, 0.25), 0 20px 30px -5px rgba(0, 0, 0, 0.6);
+}
+.anomaly-toast[data-kind="unknown"] .anomaly-toast-main-title {
+  color: #f87171;
+}
+.anomaly-toast[data-kind="unknown"] .anomaly-toast-progress-bar {
+  background: linear-gradient(to right, #ef4444, #f87171);
+}
+
+.anomaly-toast[data-kind="unassigned"] .anomaly-toast-card {
+  border-color: rgba(234, 179, 8, 0.8);
+  box-shadow: 0 0 30px rgba(234, 179, 8, 0.25), 0 20px 30px -5px rgba(0, 0, 0, 0.6);
+}
+.anomaly-toast[data-kind="unassigned"] .anomaly-toast-main-title {
+  color: #facc15;
+}
+.anomaly-toast[data-kind="unassigned"] .anomaly-toast-progress-bar {
+  background: linear-gradient(to right, #eab308, #fef08a);
+}
+
+.anomaly-toast[data-kind="found_missing"] .anomaly-toast-card {
+  border-color: rgba(16, 185, 129, 0.8);
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.25), 0 20px 30px -5px rgba(0, 0, 0, 0.6);
+}
+.anomaly-toast[data-kind="found_missing"] .anomaly-toast-main-title {
+  color: #34d399;
+}
+.anomaly-toast[data-kind="found_missing"] .anomaly-toast-progress-bar {
+  background: linear-gradient(to right, #10b981, #6ee7b7);
+}
+
+.anomaly-toast[data-kind="not_found"] .anomaly-toast-card {
+  border-color: rgba(244, 63, 94, 0.8);
+  box-shadow: 0 0 30px rgba(244, 63, 94, 0.25), 0 20px 30px -5px rgba(0, 0, 0, 0.6);
+}
+.anomaly-toast[data-kind="not_found"] .anomaly-toast-main-title {
+  color: #fb7185;
+}
+.anomaly-toast[data-kind="not_found"] .anomaly-toast-progress-bar {
+  background: linear-gradient(to right, #f43f5e, #fda4af);
+}
+
+.anomaly-toast[data-kind="over"] .anomaly-toast-card {
+  border-color: rgba(59, 130, 246, 0.8);
+  box-shadow: 0 0 30px rgba(59, 130, 246, 0.25), 0 20px 30px -5px rgba(0, 0, 0, 0.6);
+}
+.anomaly-toast[data-kind="over"] .anomaly-toast-main-title {
+  color: #60a5fa;
+}
+.anomaly-toast[data-kind="over"] .anomaly-toast-progress-bar {
+  background: linear-gradient(to right, #3b82f6, #93c5fd);
+}
+
 /* Ortada kısa okutma geri bildirimi */
 .scan-flash {
   position: fixed;

@@ -2,7 +2,7 @@ import { api } from "../api";
 import { CountTrackingStatus, type ItemStatus, type ShelfItem, type ShelfStats, type ShelfSummary } from "../types";
 import { isClassicEtiketCode } from "./etiketFormat";
 import { feedbackKindFromScan, showScanFlash, showScanFeedback } from "./scanFeedback";
-import { showScanMessage, showScanToast } from "./toast";
+import { showAnomalyToast, showScanMessage, showScanToast } from "./toast";
 import {
   optimisticItemUpdate,
   toastKindFromScan,
@@ -198,13 +198,35 @@ class ScanQueue {
 
     const kind: ToastKind = toastKindFromScan(result);
     if (result.scan_type === "misplaced") {
-      showScanMessage(`🟠 ${result.message}`, "misplaced");
+      showAnomalyToast({
+        kind: "misplaced",
+        etiket: result.etiket,
+        message: result.message,
+      });
     } else if (result.scan_type === "found_missing" || result.found_missing) {
-      showScanMessage(`🟧 ${result.message}`, "found_missing");
+      showAnomalyToast({
+        kind: "found_missing",
+        etiket: result.etiket,
+        message: result.message,
+      });
     } else if (result.scan_type === "unassigned") {
-      showScanMessage(`🟡 ${result.message}`, "unassigned");
+      showAnomalyToast({
+        kind: "unassigned",
+        etiket: result.etiket,
+        message: result.message,
+      });
     } else if (result.scan_type === "unknown") {
-      showScanMessage(`🔴 ${result.message}`, "unknown");
+      showAnomalyToast({
+        kind: "unknown",
+        etiket: result.etiket,
+        message: result.message,
+      });
+    } else if (result.status === "over") {
+      showAnomalyToast({
+        kind: "over",
+        etiket: result.etiket,
+        message: result.message,
+      });
     } else {
       showScanToast(result.etiket, kind);
     }

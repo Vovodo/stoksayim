@@ -11,7 +11,7 @@ import {
   shelfCorrectionCount,
 } from "../scan/misplacementHints";
 import { mountScanFlash } from "../scan/scanFeedback";
-import { mountScanToast, showScanMessage, showScanToast } from "../scan/toast";
+import { mountScanToast, showAnomalyToast, showScanMessage, showScanToast } from "../scan/toast";
 import { filterShelvesByQuery } from "../utils/shelfLookup";
 import { CountTrackingStatus } from "../types";
 import type { MisplacementCorrection, ShelfDetail, ShelfItem, ShelfStats, ShelfSummary } from "../types";
@@ -206,7 +206,12 @@ export function CountPanel({
   const markOneNotFound = useCallback(
     async (lineId: string) => {
       if (!activeShelf || !sessionActive) return;
-      showScanToast("Ürün bulunamadı olarak işaretlendi", "normal");
+      const targetItem = items.find((it) => it.line_id === lineId);
+      showAnomalyToast({
+        kind: "not_found",
+        etiket: targetItem?.etiket,
+        message: `'${targetItem?.etiket || lineId}' etiketli ürün Bulunamadı olarak işaretlendi ve Düzeltmeler listesine kaydedildi.`,
+      });
 
       // 0ms Optimistic UI update
       setItems((prevItems) =>
