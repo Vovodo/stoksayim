@@ -386,16 +386,41 @@ class AppDatabaseRepository(SQLiteSessionRepository):
             "scanned_at": now,
         }
 
-    async def get_all_scan_counts_by_type(self, session_id: int) -> dict[tuple[str, str, str], float]:
-        rows = await self._fetch_all(
-            "SELECT reference, shelf, scan_type, scanned FROM scan_events WHERE session_id = ?",
+    async def get_all_scan_counts_by_type(
+        self, session_id: int
+    ) -> dict[str, dict[Any, float]]:
+        result: dict[str, dict] = {
+            "normal": {},
+            "unassigned": {},
+            "unknown": {},
+        }
+        rows_normal = await self._fetch_all(
+            """SELECT line_id, MAX(scanned) as scanned
+               FROM scan_events
+               WHERE session_id = ? AND scan_type = 'normal' AND line_id IS NOT NULL
+               GROUP BY line_id""",
             (session_id,),
         )
-        counts: dict[tuple[str, str, str], float] = {}
-        for r in rows:
-            key = (r["reference"], r["shelf"], r["scan_type"])
-            counts[key] = counts.get(key, 0.0) + (r.get("scanned") or 0.0)
-        return counts
+        for r in rows_normal:
+            lid = r.get("line_id")
+            if lid:
+                result["normal"][lid] = float(r.get("scanned") or 0.0)
+
+        rows_other = await self._fetch_all(
+            """SELECT scan_type, reference, shelf, MAX(scanned) as scanned
+               FROM scan_events
+               WHERE session_id = ? AND scan_type != 'normal'
+               GROUP BY scan_type, reference, shelf""",
+            (session_id,),
+        )
+        for r in rows_other:
+            st = r.get("scan_type")
+            bucket = result.get(st, result["normal"])
+            ref = r.get("reference") or ""
+            sh = r.get("shelf") or ""
+            bucket[(ref, sh)] = float(r.get("scanned") or 0.0)
+
+        return result
 
     async def record_misplacement(
         self,
@@ -422,12 +447,104 @@ class AppDatabaseRepository(SQLiteSessionRepository):
             """
             SELECT m.*, u.username
             FROM misplacement_corrections m
-            JOIN users u ON m.user_id = u.id
+            LEFT JOIN users u ON m.user_id = u.id
             WHERE m.session_id = ?
             ORDER BY m.created_at DESC
             """,
             (session_id,),
         )
+
+    async def get_all_misplacements(self) -> list[dict[str, Any]]:
+        return await self._fetch_all(
+            """
+            SELECT m.*, u.username
+            FROM misplacement_corrections m
+            LEFT JOIN users u ON m.user_id = u.id
+            ORDER BY m.created_at DESC
+            """
+        )
+
+    async def get_correction_by_id(self, correction_id: int) -> Optional[dict[str, Any]]:
+        return await self._fetch_one(
+            """
+            SELECT m.*, u.username
+            FROM misplacement_corrections m
+            LEFT JOIN users u ON m.user_id = u.id
+            WHERE m.id = ?
+            """,
+            (correction_id,),
+        )
+
+    async def delete_correction_by_id(self, correction_id: int) -> None:
+        await self._execute(
+            "DELETE FROM misplacement_corrections WHERE id = ?",
+            (correction_id,),
+        )
+
+    async def delete_latest_scan_event(
+        self,
+        session_id: int,
+        reference: str,
+        shelf: str,
+        scan_type: str,
+    ) -> bool:
+        row = await self._fetch_one(
+            """SELECT id FROM scan_events
+               WHERE session_id = ? AND reference = ? AND shelf = ? AND scan_type = ?
+               ORDER BY scanned_at DESC LIMIT 1""",
+            (session_id, reference, shelf, scan_type),
+        )
+        if not row:
+            return False
+        row_id = row.get("id") if isinstance(row, dict) else row[0]
+        await self._execute("DELETE FROM scan_events WHERE id = ?", (row_id,))
+        return True
+
+    async def sync_unknown_item_qty(
+        self, session_id: int, reference: str, shelf: str
+    ) -> None:
+        row = await self._fetch_one(
+            """SELECT MAX(scanned) as max_scanned FROM scan_events
+               WHERE session_id = ? AND reference = ? AND shelf = ? AND scan_type = 'unknown'""",
+            (session_id, reference, shelf),
+        )
+        max_val = row.get("max_scanned") if isinstance(row, dict) else None
+        qty = float(max_val) if max_val is not None else 0.0
+        if qty <= 0:
+            await self._execute(
+                """DELETE FROM unknown_items
+                   WHERE session_id = ? AND reference = ? AND shelf = ?""",
+                (session_id, reference, shelf),
+            )
+        else:
+            await self._execute(
+                """UPDATE unknown_items SET scanned_qty = ?
+                   WHERE session_id = ? AND reference = ? AND shelf = ?""",
+                (qty, session_id, reference, shelf),
+            )
+
+    async def sync_unassigned_found_qty(
+        self, session_id: int, reference: str, found_shelf: str
+    ) -> None:
+        row = await self._fetch_one(
+            """SELECT MAX(scanned) as max_scanned FROM scan_events
+               WHERE session_id = ? AND reference = ? AND shelf = ? AND scan_type = 'unassigned'""",
+            (session_id, reference, found_shelf),
+        )
+        max_val = row.get("max_scanned") if isinstance(row, dict) else None
+        qty = float(max_val) if max_val is not None else 0.0
+        if qty <= 0:
+            await self._execute(
+                """DELETE FROM unassigned_found
+                   WHERE session_id = ? AND reference = ? AND found_shelf = ?""",
+                (session_id, reference, found_shelf),
+            )
+        else:
+            await self._execute(
+                """UPDATE unassigned_found SET scanned_qty = ?
+                   WHERE session_id = ? AND reference = ? AND found_shelf = ?""",
+                (qty, session_id, reference, found_shelf),
+            )
 
     async def get_unknown_items(self, session_id: int) -> list[dict[str, Any]]:
         return await self._fetch_all(
@@ -598,13 +715,26 @@ class AppDatabaseRepository(SQLiteSessionRepository):
     async def delete_not_found_marking(self, marking_id: int) -> None:
         await self._execute("DELETE FROM not_found_markings WHERE id = ?", (marking_id,))
 
-    async def get_not_found_markings(self, session_id: int) -> list[dict[str, Any]]:
+    async def get_not_found_markings(
+        self, session_id: int, status: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        if status:
+            return await self._fetch_all(
+                """
+                SELECT nf.*, u.username as marked_by_name
+                FROM not_found_markings nf
+                LEFT JOIN users u ON nf.marked_by = u.id
+                WHERE nf.session_id = ? AND nf.tracking_status = ?
+                ORDER BY nf.marked_at DESC
+                """,
+                (session_id, status),
+            )
         return await self._fetch_all(
             """
             SELECT nf.*, u.username as marked_by_name
             FROM not_found_markings nf
             LEFT JOIN users u ON nf.marked_by = u.id
-            WHERE nf.session_id = ? AND nf.tracking_status = 'BULUNAMADI'
+            WHERE nf.session_id = ?
             ORDER BY nf.marked_at DESC
             """,
             (session_id,),

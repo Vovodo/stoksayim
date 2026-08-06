@@ -177,7 +177,7 @@ class ReportService:
         unassigned = await self.count.sessions.get_unassigned_found(session_id)
         corrections = await self.count.sessions.get_misplacements(session_id)
         not_found_rows = await self.count.sessions.get_not_found_markings(session_id)
-        shelf_stats = self.count.get_all_shelf_summaries()
+        shelf_stats = await self.count.get_all_shelf_summaries()
         scan_events = await self.count.sessions.get_scan_events(session_id)
 
         still_not_found = [

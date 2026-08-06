@@ -199,6 +199,7 @@ class ShelfListItem(BaseModel):
     short_etikets: int = 0
     over_etikets: int = 0
     pending_etikets: int = 0
+    not_found_etikets: int = 0
     total_expected: float = 0
     total_scanned: float = 0
     completion_pct: float

@@ -167,14 +167,40 @@ export function CountPanel({
     [activeShelf, items, corrections],
   );
 
-  const totalProgress = useMemo(() => {
+  const totalProgressStats = useMemo(() => {
     const totalEtikets = shelves.reduce((sum, s) => sum + s.total_etikets, 0);
-    const processed = shelves.reduce(
-      (sum, s) => sum + s.completed_etikets + (s.not_found_etikets ?? 0),
+    const completedEtikets = shelves.reduce(
+      (sum, s) => sum + s.completed_etikets,
       0,
     );
-    if (totalEtikets <= 0) return 0;
-    return Math.round((processed / totalEtikets) * 1000) / 10;
+    const notFoundEtikets = shelves.reduce(
+      (sum, s) => sum + (s.not_found_etikets ?? 0),
+      0,
+    );
+    const processed = completedEtikets + notFoundEtikets;
+    const pendingEtikets = Math.max(0, totalEtikets - processed);
+    const completionPct =
+      totalEtikets > 0
+        ? Math.round((processed / totalEtikets) * 1000) / 10
+        : 0;
+
+    const totalShelves = shelves.length;
+    const completedShelves = shelves.filter(
+      (s) =>
+        s.completed_etikets + (s.not_found_etikets ?? 0) >= s.total_etikets &&
+        s.total_etikets > 0,
+    ).length;
+
+    return {
+      totalEtikets,
+      completedEtikets,
+      notFoundEtikets,
+      processed,
+      pendingEtikets,
+      completionPct,
+      totalShelves,
+      completedShelves,
+    };
   }, [shelves]);
 
   const markOneNotFound = useCallback(
@@ -241,7 +267,8 @@ export function CountPanel({
     [sessionActive],
   );
 
-  return (    <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+  return (
+    <main className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
       <ManualScanInput
         sessionActive={sessionActive}
         shelves={shelves.map((s) => s.shelf)}
@@ -308,7 +335,8 @@ export function CountPanel({
               </div>
             </button>
             );
-          })}        </aside>
+          })}
+        </aside>
 
         <section className="min-h-0 overflow-y-auto overscroll-contain p-3">
           <div className="mb-2">
@@ -352,6 +380,8 @@ export function CountPanel({
                 acting={actingLineId === item.line_id}
                 onMarkNotFound={() => void markOneNotFound(item.line_id)}
                 onUnmarkNotFound={() => void unmarkOneNotFound(item.line_id)}
+                onRevertCorrection={onRevertCorrection}
+                revertingCorrectionId={revertingCorrectionId}
               />
             ))}
             {!loadingShelf && !items.length && !orphanedScans.length && (
@@ -359,7 +389,8 @@ export function CountPanel({
                 <p className="text-slate-500 text-sm">Bu rafta ürün yok.</p>
               </EmptyStatePanel>
             )}
-          </div>        </section>
+          </div>
+        </section>
 
         <aside className="min-h-0 overflow-y-auto overscroll-contain border-l border-slate-800 p-3 text-sm flex flex-col">
           <h3 className="text-xs font-semibold text-slate-400 mb-2">RAF ÖZETİ</h3>
@@ -393,14 +424,67 @@ export function CountPanel({
       </div>
 
       {shelves.length > 0 && (
-        <div className="shrink-0 border-t border-slate-800 bg-slate-950/95 px-5 py-4 flex justify-end items-end">
-          <div className="text-right">
-            <p className="text-[11px] font-medium uppercase tracking-widest text-slate-500 mb-1">
-              Toplam İlerleme
-            </p>
-            <p className="text-5xl font-bold tabular-nums leading-none text-blue-400">
-              %{totalProgress}
-            </p>
+        <div className="shrink-0 border-t border-slate-800 bg-slate-950/95 flex flex-col justify-between">
+          <div className="px-5 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-xs text-slate-400 overflow-x-auto">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                  İşlenen Etiket
+                </span>
+                <span className="text-sm font-semibold text-slate-200 font-mono">
+                  {totalProgressStats.processed.toLocaleString("tr-TR")} /{" "}
+                  {totalProgressStats.totalEtikets.toLocaleString("tr-TR")}
+                </span>
+              </div>
+
+              <div className="h-7 w-px bg-slate-800 shrink-0" />
+
+              <div className="flex flex-col">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                  Tamamlanan Raflar
+                </span>
+                <span className="text-sm font-semibold text-slate-200 font-mono">
+                  {totalProgressStats.completedShelves} /{" "}
+                  {totalProgressStats.totalShelves} raf
+                </span>
+              </div>
+
+              {totalProgressStats.notFoundEtikets > 0 && (
+                <>
+                  <div className="h-7 w-px bg-slate-800 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                      Bulunamadı
+                    </span>
+                    <span className="text-sm font-semibold text-red-400 font-mono">
+                      {totalProgressStats.notFoundEtikets.toLocaleString("tr-TR")} etiket
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="text-right shrink-0">
+              <p className="text-[11px] font-medium uppercase tracking-widest text-slate-400 mb-0.5">
+                Toplam İlerleme
+              </p>
+              <p className="text-4xl font-extrabold tabular-nums leading-none text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-300 to-emerald-400">
+                %{totalProgressStats.completionPct}
+              </p>
+            </div>
+          </div>
+
+          <div className="w-full h-3 bg-slate-900 overflow-hidden relative border-t border-slate-800/60 shadow-inner">
+            <div
+              className="h-full bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-400 transition-all duration-500 ease-out relative shadow-[0_0_12px_rgba(59,130,246,0.6)]"
+              style={{
+                width: `${Math.min(100, Math.max(0, totalProgressStats.completionPct))}%`,
+              }}
+            >
+              {totalProgressStats.completionPct > 0 && (
+                <div className="absolute top-0 bottom-0 right-0 w-2.5 bg-white/60 shadow-[0_0_10px_#ffffff] rounded-full animate-pulse" />
+              )}
+            </div>
           </div>
         </div>
       )}

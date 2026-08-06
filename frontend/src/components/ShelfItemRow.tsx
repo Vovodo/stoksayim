@@ -2,7 +2,7 @@ import { memo } from "react";
 import { statusColor, statusLabel, trackingClasses, trackingLabel } from "../hooks";
 import { CountTrackingStatus } from "../types";
 import type { MisplacementHint } from "../scan/misplacementHints";
-import type { ShelfItem } from "../types";
+import type { MisplacementCorrection, ShelfItem } from "../types";
 
 interface Props {
   item: ShelfItem;
@@ -13,6 +13,8 @@ interface Props {
   acting?: boolean;
   onMarkNotFound?: () => void;
   onUnmarkNotFound?: () => void;
+  onRevertCorrection?: (correction: MisplacementCorrection) => void;
+  revertingCorrectionId?: number | null;
 }
 
 function misplacementClasses(kind: MisplacementHint["kind"] | undefined): string {
@@ -34,6 +36,8 @@ function ShelfItemRowInner({
   acting,
   onMarkNotFound,
   onUnmarkNotFound,
+  onRevertCorrection,
+  revertingCorrectionId,
 }: Props) {
   const subtitle = formatSubtitle(item);
   const mpClass = misplacement ? misplacementClasses(misplacement.kind) : "";
@@ -55,12 +59,25 @@ function ShelfItemRowInner({
         <div className="font-mono text-base font-semibold truncate">{item.etiket}</div>
         {subtitle ? <div className="text-xs text-slate-400 truncate">{subtitle}</div> : null}
         {misplacement ? (
-          <div
-            className={`text-xs mt-1 font-medium truncate ${
-              misplacement.kind === "scanned_elsewhere" ? "text-orange-300" : "text-amber-300"
-            }`}
-          >
-            ⚠ {misplacement.message}
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span
+              className={`text-xs font-medium truncate ${
+                misplacement.kind === "scanned_elsewhere" ? "text-orange-300" : "text-amber-300"
+              }`}
+            >
+              ⚠ {misplacement.message}
+            </span>
+            {misplacement.correction && onRevertCorrection ? (
+              <button
+                type="button"
+                disabled={revertingCorrectionId === misplacement.correction.id}
+                onClick={() => onRevertCorrection(misplacement.correction!)}
+                className="text-[10px] px-1.5 py-0.5 rounded border border-orange-600/60 bg-orange-950/40 text-orange-200 hover:bg-orange-950/80 disabled:opacity-40 whitespace-nowrap cursor-pointer font-medium"
+                title="Yanlış okutma / uyumsuzluk kaydını sil"
+              >
+                {revertingCorrectionId === misplacement.correction.id ? "…" : "Uyumsuzluğu Kaldır"}
+              </button>
+            ) : null}
           </div>
         ) : null}
         {trackText ? (

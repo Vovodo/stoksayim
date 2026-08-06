@@ -152,6 +152,7 @@ export interface ReportCorrectionEntry {
   product_name: string;
   username: string;
   created_at: string;
+  original_correction?: MisplacementCorrection;
 }
 
 export interface ReportFileInfo {

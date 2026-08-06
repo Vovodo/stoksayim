@@ -94,6 +94,11 @@ class CountService:
                         )
         await self._reload_not_found_cache(session["id"])
 
+    async def ensure_session_state(self) -> Optional[int]:
+        if self._active_session_id is None:
+            await self.reload_session_state()
+        return self._active_session_id
+
     async def start_session(self, name: str, user_id: int) -> dict:
         if not self.stock.is_loaded():
             from pathlib import Path
@@ -263,6 +268,8 @@ class CountService:
         return f"{primary} ({', '.join(others)})"
 
     async def get_corrections(self, session_id: Optional[int] = None) -> list[dict[str, Any]]:
+        if session_id is None:
+            await self.ensure_session_state()
         sid = session_id if session_id is not None else self._active_session_id
         if sid is not None:
             rows = await self.sessions.get_misplacements(sid)
@@ -440,6 +447,8 @@ class CountService:
     async def get_not_found_recoveries(
         self, session_id: Optional[int] = None
     ) -> list[dict[str, Any]]:
+        if session_id is None:
+            await self.ensure_session_state()
         sid = session_id if session_id is not None else self._active_session_id
         if not sid:
             return []
@@ -463,9 +472,10 @@ class CountService:
         ]
 
     async def get_active_not_found_markings(self) -> list[dict[str, Any]]:
-        if not self._active_session_id:
+        sid = await self.ensure_session_state()
+        if not sid:
             return []
-        rows = await self.sessions.get_not_found_markings(self._active_session_id)
+        rows = await self.sessions.get_not_found_markings(sid, CountTrackingStatus.BULUNAMADI.value)
         return [
             {
                 "id": r["id"],
@@ -1079,7 +1089,8 @@ class CountService:
 
         return {"shelf": shelf, "items": items, "stats": stats}
 
-    def get_all_shelf_summaries(self) -> list[dict]:
+    async def get_all_shelf_summaries(self) -> list[dict]:
+        await self.ensure_session_state()
         if not self.stock.is_loaded():
             return []
         summaries = []

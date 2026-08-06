@@ -559,7 +559,7 @@ class SQLiteSessionRepository(SessionRepository):
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """SELECT m.*, u.username FROM misplacement_corrections m
-                   JOIN users u ON m.user_id = u.id
+                   LEFT JOIN users u ON m.user_id = u.id
                    WHERE m.session_id = ? ORDER BY m.created_at DESC""",
                 (session_id,),
             ) as cur:
@@ -570,7 +570,7 @@ class SQLiteSessionRepository(SessionRepository):
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """SELECT m.*, u.username FROM misplacement_corrections m
-                   JOIN users u ON m.user_id = u.id
+                   LEFT JOIN users u ON m.user_id = u.id
                    ORDER BY m.created_at DESC"""
             ) as cur:
                 return [dict(r) for r in await cur.fetchall()]
@@ -580,7 +580,7 @@ class SQLiteSessionRepository(SessionRepository):
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 """SELECT m.*, u.username FROM misplacement_corrections m
-                   JOIN users u ON m.user_id = u.id
+                   LEFT JOIN users u ON m.user_id = u.id
                    WHERE m.id = ?""",
                 (correction_id,),
             ) as cur:

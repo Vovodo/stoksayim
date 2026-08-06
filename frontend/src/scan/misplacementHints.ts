@@ -5,6 +5,7 @@ export type MisplacementHintKind = "scanned_elsewhere" | "wrongly_here";
 export interface MisplacementHint {
   kind: MisplacementHintKind;
   message: string;
+  correction?: MisplacementCorrection;
 }
 
 /** Ürün satırı için çapraz raf uyarısı (en güncel kayıt). */
@@ -19,18 +20,21 @@ export function hintForItem(
       return {
         kind: "wrongly_here",
         message: "Excel'de depo/raf bilgisi boş — burada okutuldu",
+        correction: c,
       };
     }
     if (c.correct_shelf === shelf && c.scanned_shelf !== shelf) {
       return {
         kind: "scanned_elsewhere",
         message: `Bu ürün ${c.scanned_shelf} rafında okutuldu`,
+        correction: c,
       };
     }
     if (c.scanned_shelf === shelf && c.correct_shelf !== shelf) {
       return {
         kind: "wrongly_here",
         message: `${c.correct_shelf} rafına ait — burada yanlış okutuldu`,
+        correction: c,
       };
     }
   }

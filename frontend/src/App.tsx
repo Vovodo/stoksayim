@@ -122,6 +122,7 @@ export default function App() {
         product_name: "",
         username: c.username || "",
         created_at: c.created_at || "",
+        original_correction: c,
       });
     });
 
@@ -214,7 +215,7 @@ export default function App() {
     setActiveShelf(shelf);
     api.corrections().then(setCorrections).catch(() => {});
     api.notFoundRecoveries().then(setRecoveries).catch(() => {});
-
+    api.notFoundMarkings().then(setNotFoundMarkings).catch(() => {});
   }, []);
 
 
@@ -592,7 +593,11 @@ export default function App() {
               Sayım devam ederken anlık gerçekleşen raf uyumsuzlukları, bulunamadı durumları ve canlı düzeltme kayıtları.
             </p>
           </div>
-          <CompactAnomalyReportList entries={liveAnomalyEntries} />
+          <CompactAnomalyReportList
+            entries={liveAnomalyEntries}
+            onRevertCorrection={revertCorrection}
+            revertingCorrectionId={revertingCorrectionId}
+          />
         </div>
       )}
 

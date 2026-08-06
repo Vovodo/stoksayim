@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
-import type { ReportCorrectionEntry } from "../types";
+import type { MisplacementCorrection, ReportCorrectionEntry } from "../types";
 
 interface Props {
   entries: ReportCorrectionEntry[];
+  onRevertCorrection?: (correction: MisplacementCorrection) => void;
+  revertingCorrectionId?: number | null;
 }
 
 type FilterCategory = "ALL" | "NOT_FOUND" | "MISPLACEMENT" | "UNKNOWN" | "UNASSIGNED" | "RECOVERED";
@@ -67,7 +69,7 @@ function getCategoryBadge(category: string) {
   };
 }
 
-export function CompactAnomalyReportList({ entries }: Props) {
+export function CompactAnomalyReportList({ entries, onRevertCorrection, revertingCorrectionId }: Props) {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<FilterCategory>("ALL");
 
@@ -228,12 +230,15 @@ export function CompactAnomalyReportList({ entries }: Props) {
                 <th className="py-2.5 px-3 w-40">Raf Değişimi</th>
                 <th className="py-2.5 px-3">Bildirim / Açıklama</th>
                 <th className="py-2.5 px-3 w-32 text-right">Kullanıcı & Tarih</th>
+                {onRevertCorrection && (
+                  <th className="py-2.5 px-3 w-28 text-center">İşlem</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
+                  <td colSpan={onRevertCorrection ? 7 : 6} className="py-8 text-center text-slate-500 text-xs">
                     Aranan kriterlere uygun anomali kaydı bulunamadı.
                   </td>
                 </tr>
@@ -299,6 +304,25 @@ export function CompactAnomalyReportList({ entries }: Props) {
                           {entry.created_at ? new Date(entry.created_at).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—"}
                         </div>
                       </td>
+
+                      {/* Action column */}
+                      {onRevertCorrection && (
+                        <td className="py-2 px-3 text-center">
+                          {entry.original_correction ? (
+                            <button
+                              type="button"
+                              disabled={revertingCorrectionId === entry.original_correction.id}
+                              onClick={() => onRevertCorrection(entry.original_correction!)}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium border border-orange-600/60 bg-orange-950/40 text-orange-200 hover:bg-orange-900/60 disabled:opacity-40 whitespace-nowrap cursor-pointer"
+                              title="Uyumsuzluk kaydını sil"
+                            >
+                              {revertingCorrectionId === entry.original_correction.id ? "…" : "Uyumsuzluğu Kaldır"}
+                            </button>
+                          ) : (
+                            <span className="text-slate-600">—</span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })

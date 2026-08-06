@@ -226,7 +226,7 @@ async def mark_not_found(
 
     detail = count_service.get_shelf_detail(body.shelf)
     stats = detail["stats"]
-    summaries = count_service.get_all_shelf_summaries()
+    summaries = await count_service.get_all_shelf_summaries()
     await _broadcast(
         "not_found_marked",
         {
@@ -263,7 +263,7 @@ async def unmark_not_found(
     shelf = result["shelf"]
     detail = count_service.get_shelf_detail(shelf)
     stats = detail["stats"]
-    summaries = count_service.get_all_shelf_summaries()
+    summaries = await count_service.get_all_shelf_summaries()
     await _broadcast(
         "not_found_unmarked",
         {
@@ -298,7 +298,7 @@ async def revert_correction(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     corrections = await count_service.get_corrections()
-    summaries = count_service.get_all_shelf_summaries()
+    summaries = await count_service.get_all_shelf_summaries()
     await _broadcast("correction", {"corrections": corrections})
     await _broadcast("misplacement", {"corrections": corrections})
     await _broadcast(
@@ -320,7 +320,7 @@ async def scan_barcode(
         raise HTTPException(400, str(exc)) from exc
 
     active = count_service.active_shelf or result.shelf or ""
-    summaries = count_service.get_all_shelf_summaries()
+    summaries = await count_service.get_all_shelf_summaries()
 
     if result.scan_type == ScanType.IGNORED:
         return ScanResultResponse(
@@ -397,7 +397,7 @@ async def scan_barcode(
 async def list_shelves(user: dict = Depends(get_current_user)):
     if not stock_repo.is_loaded():
         return []
-    return [ShelfListItem(**s) for s in count_service.get_all_shelf_summaries()]
+    return [ShelfListItem(**s) for s in await count_service.get_all_shelf_summaries()]
 
 
 @router.get("/shelves/{shelf}", response_model=ShelfDetailResponse)
