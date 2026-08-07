@@ -52,6 +52,7 @@ export function CountPanel({
   const [highlight, setHighlight] = useState<string>("");
   const [shelfQuery, setShelfQuery] = useState("");
   const [actingLineId, setActingLineId] = useState<string | null>(null);
+  const [hideCompleted, setHideCompleted] = useState(false);
   const itemsMapRef = useRef<Map<string, ShelfItem>>(new Map());
   const highlightTimer = useRef<ReturnType<typeof setTimeout>>();
   const userPickedShelf = useRef(false);
@@ -157,10 +158,28 @@ export function CountPanel({
     [loadShelf, sessionActive],
   );
 
-  const filteredShelves = useMemo(
-    () => filterShelvesByQuery(shelves, shelfQuery),
-    [shelves, shelfQuery],
+  const completedShelvesCount = useMemo(
+    () =>
+      shelves.filter(
+        (s) =>
+          s.completion_pct >= 100 ||
+          (s.completed_etikets + (s.not_found_etikets ?? 0) >= s.total_etikets &&
+            s.total_etikets > 0),
+      ).length,
+    [shelves],
   );
+
+  const filteredShelves = useMemo(() => {
+    let list = filterShelvesByQuery(shelves, shelfQuery);
+    if (hideCompleted) {
+      list = list.filter(
+        (s) =>
+          s.completion_pct < 100 &&
+          s.completed_etikets + (s.not_found_etikets ?? 0) < s.total_etikets,
+      );
+    }
+    return list;
+  }, [shelves, shelfQuery, hideCompleted]);
 
   const orphanedScans = useMemo(
     () => scansOnShelfNotInList(activeShelf, items, corrections),
@@ -283,16 +302,16 @@ export function CountPanel({
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[200px_1fr_220px] gap-0 min-h-0 overflow-hidden">
         <aside className="min-h-0 overflow-y-auto overscroll-contain border-r border-slate-800">
           <div className="sticky top-0 z-10 bg-slate-950 border-b border-slate-800/50">
-            <div className="px-2 pt-2 pb-1 text-xs uppercase tracking-wide text-slate-500">
-              Raflar
-              {shelfQuery.trim() && shelves.length > 0 ? (
-                <span className="normal-case text-slate-600 ml-1">
+            <div className="px-2 pt-2 pb-1 flex items-center justify-between text-xs uppercase tracking-wide text-slate-500">
+              <span>Raflar</span>
+              {shelves.length > 0 && (
+                <span className="normal-case text-slate-400 font-mono text-[11px]">
                   ({filteredShelves.length}/{shelves.length})
                 </span>
-              ) : null}
+              )}
             </div>
             {shelves.length > 0 && (
-              <div className="px-2 pb-2">
+              <div className="px-2 pb-2 space-y-1.5">
                 <input
                   type="search"
                   value={shelfQuery}
@@ -301,6 +320,32 @@ export function CountPanel({
                   aria-label="Raf ara"
                   className="w-full bg-slate-900 border border-slate-700 rounded-md px-2.5 py-1.5 text-sm font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-blue-500/70 focus:ring-1 focus:ring-blue-500/30"
                 />
+                <button
+                  type="button"
+                  onClick={() => setHideCompleted((prev) => !prev)}
+                  className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors border select-none ${
+                    hideCompleted
+                      ? "bg-blue-950/90 border-blue-500/70 text-blue-200 font-medium"
+                      : "bg-slate-900/90 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+                  }`}
+                  title={hideCompleted ? "%100 tamamlanan rafları göster" : "%100 tamamlanan rafları gizle"}
+                >
+                  <span className="flex items-center gap-1.5 truncate">
+                    <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[10px] shrink-0 ${
+                      hideCompleted ? "bg-blue-600 border-blue-500 text-white font-bold" : "border-slate-700 bg-slate-800"
+                    }`}>
+                      {hideCompleted ? "✓" : ""}
+                    </span>
+                    <span className="truncate">%100 Olanları Gizle</span>
+                  </span>
+                  {completedShelvesCount > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono shrink-0 ${
+                      hideCompleted ? "bg-blue-900 text-blue-200" : "bg-slate-800 text-slate-400"
+                    }`}>
+                      {completedShelvesCount}
+                    </span>
+                  )}
+                </button>
               </div>
             )}
           </div>
@@ -312,8 +357,21 @@ export function CountPanel({
             </EmptyStatePanel>
           )}
           {shelves.length > 0 && filteredShelves.length === 0 && (
-            <EmptyStatePanel className="px-2 py-6">
-              <p className="text-xs text-slate-500">“{shelfQuery}” ile eşleşen raf yok.</p>
+            <EmptyStatePanel className="px-2 py-6 text-center">
+              <p className="text-xs text-slate-500">
+                {hideCompleted && completedShelvesCount > 0 && !shelfQuery.trim()
+                  ? "Tüm raflar %100 tamamlandı!"
+                  : `“${shelfQuery}” ile eşleşen raf bulunamadı.`}
+              </p>
+              {hideCompleted && completedShelvesCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setHideCompleted(false)}
+                  className="mt-2 text-xs text-blue-400 hover:underline cursor-pointer"
+                >
+                  Tüm rafları göster ({completedShelvesCount} gizli)
+                </button>
+              )}
             </EmptyStatePanel>
           )}
           {filteredShelves.map((s) => {
