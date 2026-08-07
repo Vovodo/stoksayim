@@ -83,7 +83,7 @@ async def upload_excel(
                 f"Excel Supabase Storage bucket'ına kaydedildi: excel/{file.filename}",
             )
     except Exception as exc:
-        pass
+        logger.error("Excel Supabase Storage'a senkronize edilemedi: %s", exc)
 
     await count_service.reload_session_state()
     await session_repo.add_audit_log(

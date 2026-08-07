@@ -37,7 +37,7 @@ class SupabaseFileStorage:
             "Content-Type": mime_type or "application/octet-stream",
             "x-upsert": "true",
         }
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, verify=False) as client:
             response = await client.post(
                 self._object_url(object_key),
                 content=content,
@@ -49,7 +49,7 @@ class SupabaseFileStorage:
 
     async def read(self, object_key: str) -> Optional[bytes]:
         headers = {"Authorization": f"Bearer {self.service_role_key}"}
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, verify=False) as client:
             response = await client.get(self._object_url(object_key), headers=headers)
             if response.status_code == 404:
                 return None
@@ -60,7 +60,7 @@ class SupabaseFileStorage:
 
     async def delete(self, object_key: str) -> None:
         headers = {"Authorization": f"Bearer {self.service_role_key}"}
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
             response = await client.delete(self._object_url(object_key), headers=headers)
             if response.status_code in (200, 204, 404):
                 return

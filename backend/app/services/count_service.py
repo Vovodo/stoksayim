@@ -82,6 +82,13 @@ class CountService:
         self._unassigned_cache = counts.get("unassigned", {})
         self._unknown_cache = counts.get("unknown", {})
 
+        if not self.stock.is_loaded():
+            try:
+                from app.main import _load_persisted_excel
+                await _load_persisted_excel()
+            except Exception as exc:
+                logger.warning("reload_session_state Excel yükleme denenirken hata: %s", exc)
+
         if self.stock.is_loaded():
             for shelf in self.stock.get_shelves():
                 for item in self.stock.get_shelf_items(shelf):
@@ -117,12 +124,22 @@ class CountService:
                     logger.warning("Otomatik Excel yükleme başarısız: %s", exc)
 
             if not self.stock.is_loaded():
+                try:
+                    from app.main import _load_persisted_excel
+                    await _load_persisted_excel()
+                except Exception:
+                    pass
+
+            if not self.stock.is_loaded():
                 raise ValueError("Sayıma başlamadan önce lütfen Yönetim sayfasından bir Excel dosyası yükleyin.")
 
         meta = self.stock.get_metadata()
+        filename = meta.get("filename", "")
         session_res = await self.sessions.create_session(
-            name, user_id, meta.get("filename", "")
+            name, user_id, filename
         )
+        if filename:
+            await self.sessions.set_setting("latest_excel_filename", filename)
         session_id = session_res["id"] if isinstance(session_res, dict) else session_res
 
         shelves = self.stock.get_shelves()

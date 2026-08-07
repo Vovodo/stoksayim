@@ -13,24 +13,63 @@ from app.core.logging import logger
 
 
 async def _load_persisted_excel() -> None:
-    """Diskteki veya Supabase Storage'daki son Excel dosyasını RAM cache'e yükle (startup)."""
+    """Diskteki veya Supabase Storage'daki aktif/son Excel dosyasını RAM cache'e yükle (startup)."""
     if stock_repo.is_loaded():
         logger.info("Excel RAM cache zaten yüklü — startup atlandı.")
         return
 
+    # 1. Öncelik: Aktif oturumun Excel dosyası veya son yüklenen Excel adı
+    target_filename: Optional[str] = None
+    try:
+        active_session = await session_repo.get_active_session()
+        if active_session and active_session.get("excel_filename"):
+            target_filename = active_session.get("excel_filename")
+        if not target_filename:
+            target_filename = await session_repo.get_setting("latest_excel_filename")
+    except Exception as exc:
+        logger.warning("Startup veritabanından Excel adı sorgulama hatası: %s", exc)
+
+    # 2. Eğer hedef dosya biliniyorsa, önce diskte var mı bak, yoksa Supabase Storage'dan indir
+    if target_filename:
+        dest = settings.upload_dir / target_filename
+        if not dest.is_file():
+            try:
+                from app.services.storage_settings_service import StorageSettingsService
+                storage_svc = StorageSettingsService(session_repo)
+                supabase_storage = await storage_svc.get_supabase_storage()
+                if supabase_storage:
+                    excel_bytes = await supabase_storage.read(f"excel/{target_filename}")
+                    if not excel_bytes:
+                        excel_bytes = await supabase_storage.read(target_filename)
+                    if excel_bytes:
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_bytes(excel_bytes)
+                        logger.info("Startup: Supabase Storage'dan Excel indirildi ve senkronize edildi: %s", target_filename)
+            except Exception as exc:
+                logger.warning("Startup Supabase Storage indirme hatası (%s): %s", target_filename, exc)
+
+        if dest.is_file():
+            try:
+                stock_repo.load_from_excel(str(dest))
+                meta = stock_repo.get_metadata()
+                logger.info(
+                    "Startup Hedef Excel RAM cache'e yüklendi: %s (%d etiket, %d raf)",
+                    dest.name,
+                    meta.get("etiket_count", 0),
+                    meta.get("shelf_count", 0),
+                )
+                return
+            except Exception as exc:
+                logger.error("Startup Hedef Excel okunamadı (%s): %s", dest.name, exc)
+
+    # 3. Yedeğe geç: Diskte bulunan herhangi bir .xlsx / .xls dosyası (tarihe göre en son)
     uploads = sorted(
-        settings.upload_dir.glob("*.xlsx"),
+        list(settings.upload_dir.glob("*.xlsx")) + list(settings.upload_dir.glob("*.xls")),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
-    if not uploads:
-        uploads = sorted(
-            settings.upload_dir.glob("*.xls"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
 
-    if not uploads:
+    if not uploads and target_filename is None:
         try:
             from app.services.storage_settings_service import StorageSettingsService
             storage_svc = StorageSettingsService(session_repo)
@@ -38,13 +77,16 @@ async def _load_persisted_excel() -> None:
             latest_filename = await session_repo.get_setting("latest_excel_filename")
             if supabase_storage and latest_filename:
                 excel_bytes = await supabase_storage.read(f"excel/{latest_filename}")
+                if not excel_bytes:
+                    excel_bytes = await supabase_storage.read(latest_filename)
                 if excel_bytes:
                     dest = settings.upload_dir / latest_filename
+                    dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(excel_bytes)
                     uploads = [dest]
-                    logger.info("Startup: Supabase Storage'dan Excel dosyası indirildi ve senkronize edildi: %s", latest_filename)
+                    logger.info("Startup: Supabase Storage'dan son Excel indirildi: %s", latest_filename)
         except Exception as exc:
-            logger.warning("Startup Supabase Storage Excel indirme hatası: %s", exc)
+            logger.warning("Startup genel Supabase Excel indirme hatası: %s", exc)
 
     if not uploads:
         logger.info("Startup: uploads klasöründe Excel yok — cache boş.")
