@@ -15,11 +15,6 @@ fi
 npm run build
 cd "$ROOT"
 
-echo "==> Static dosyalar backend/static altına kopyalanıyor"
-rm -rf backend/static
-mkdir -p backend/static
-cp -r frontend/dist/* backend/static/
-
 echo "==> Backend Python bağımlılıkları"
 cd backend
 pip install -r requirements.txt

@@ -83,11 +83,11 @@ def _mount_frontend(app: FastAPI) -> None:
         logger.warning("index.html bulunamadı: %s", index_file)
         return
 
-    @app.get("/", include_in_schema=False)
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_index_root() -> FileResponse:
         return FileResponse(index_file)
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_spa(full_path: str) -> FileResponse:
         if full_path.startswith("api") or full_path == "ws":
             raise HTTPException(status_code=404, detail="Not Found")
@@ -131,16 +131,14 @@ app.include_router(reports.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
 
 
-@app.get("/health")
+# UptimeRobot & Health Check Endpoints (GET and HEAD supported)
+
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
     return {"status": "ok"}
 
-@app.head("/health")
-async def health_head():
-    return Response(status_code=200)
 
-
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 async def api_health():
     meta = count_service.stock.get_metadata() if count_service.stock.is_loaded() else {}
     return {
@@ -150,6 +148,12 @@ async def api_health():
         "cache_mode": meta.get("cache_mode", "none"),
         "etiket_count": meta.get("etiket_count", 0),
     }
+
+
+@app.api_route("/ping", methods=["GET", "HEAD"])
+@app.api_route("/api/ping", methods=["GET", "HEAD"])
+async def ping():
+    return Response(content="pong", media_type="text/plain", status_code=200)
 
 
 @app.websocket("/ws")
