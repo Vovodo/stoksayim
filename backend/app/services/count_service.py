@@ -427,7 +427,11 @@ class CountService:
 
         etiket = marking["etiket"]
         shelf = marking["expected_shelf"]
-        await self.sessions.delete_not_found_marking(marking["id"])
+        await self.sessions.delete_not_found_marking(
+            marking.get("id") or 0,
+            session_id=self._active_session_id,
+            line_id=line_id,
+        )
         self._not_found_by_line.pop(line_id, None)
         if self._not_found_active_by_etiket.get(etiket, {}).get("line_id") == line_id:
             self._not_found_active_by_etiket.pop(etiket, None)
@@ -473,8 +477,8 @@ class CountService:
                 "final_status": r["tracking_status"],
                 "marked_at": r["marked_at"],
                 "resolved_at": r.get("resolved_at"),
-                "marked_by": r.get("marked_by_name") or "",
-                "resolved_by": r.get("resolved_by_name") or "",
+                "marked_by": r.get("marked_by_name") or r.get("marked_by_username") or "",
+                "resolved_by": r.get("resolved_by_name") or r.get("resolved_by_username") or "",
             }
             for r in rows
         ]
@@ -511,10 +515,12 @@ class CountService:
 
         if active_shelf == expected_shelf:
             await self.sessions.update_not_found_status(
-                marking["id"],
+                marking.get("id") or 0,
                 CountTrackingStatus.TEKRAR_BULUNDU.value,
                 user_id,
                 active_shelf,
+                session_id=self._active_session_id,
+                line_id=marking["line_id"],
             )
             updated = await self.sessions.get_not_found_by_line(
                 self._active_session_id, marking["line_id"]
@@ -560,10 +566,12 @@ class CountService:
         expected = float(marking.get("expected") or 0)
 
         await self.sessions.update_not_found_status(
-            marking["id"],
+            marking.get("id") or 0,
             CountTrackingStatus.SONRADAN_BULUNDU.value,
             user_id,
             active_shelf,
+            session_id=self._active_session_id,
+            line_id=line_id,
         )
         updated = await self.sessions.get_not_found_by_line(
             self._active_session_id, line_id

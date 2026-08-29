@@ -705,6 +705,31 @@ class SQLiteSessionRepository(SessionRepository):
                 row = await cur.fetchone()
                 return dict(row)
 
+    async def insert_not_found_markings_batch(
+        self,
+        items: list[tuple[int, str, str, str, float, str, str, int, str, str]],
+    ) -> list[dict[str, Any]]:
+        if not items:
+            return []
+        sql = """
+            INSERT INTO not_found_markings (session_id, line_id, etiket, expected_shelf, expected, stok_no, product_name, marked_by, marked_at, tracking_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (session_id, line_id) DO UPDATE SET
+                tracking_status = excluded.tracking_status,
+                marked_by = excluded.marked_by,
+                marked_at = excluded.marked_at,
+                resolved_by = NULL,
+                resolved_at = NULL,
+                found_shelf = ''
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.executemany(sql, items)
+            await db.commit()
+        session_id = items[0][0]
+        line_ids = set(it[1] for it in items)
+        all_rows = await self.get_not_found_markings(session_id)
+        return [r for r in all_rows if r["line_id"] in line_ids]
+
     async def get_not_found_markings(
         self, session_id: int, status: Optional[str] = None
     ) -> list[dict[str, Any]]:
@@ -765,20 +790,41 @@ class SQLiteSessionRepository(SessionRepository):
         tracking_status: str,
         resolved_by: int,
         found_shelf: str = "",
+        session_id: Optional[int] = None,
+        line_id: Optional[str] = None,
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                """UPDATE not_found_markings
-                   SET tracking_status = ?, resolved_by = ?, resolved_at = ?, found_shelf = ?
-                   WHERE id = ?""",
-                (tracking_status, resolved_by, now, found_shelf, marking_id),
-            )
+            if marking_id and marking_id > 0:
+                await db.execute(
+                    """UPDATE not_found_markings
+                       SET tracking_status = ?, resolved_by = ?, resolved_at = ?, found_shelf = ?
+                       WHERE id = ?""",
+                    (tracking_status, resolved_by, now, found_shelf, marking_id),
+                )
+            elif session_id is not None and line_id is not None:
+                await db.execute(
+                    """UPDATE not_found_markings
+                       SET tracking_status = ?, resolved_by = ?, resolved_at = ?, found_shelf = ?
+                       WHERE session_id = ? AND line_id = ?""",
+                    (tracking_status, resolved_by, now, found_shelf, session_id, line_id),
+                )
             await db.commit()
 
-    async def delete_not_found_marking(self, marking_id: int) -> None:
+    async def delete_not_found_marking(
+        self,
+        marking_id: int,
+        session_id: Optional[int] = None,
+        line_id: Optional[str] = None,
+    ) -> None:
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("DELETE FROM not_found_markings WHERE id = ?", (marking_id,))
+            if marking_id and marking_id > 0:
+                await db.execute("DELETE FROM not_found_markings WHERE id = ?", (marking_id,))
+            elif session_id is not None and line_id is not None:
+                await db.execute(
+                    "DELETE FROM not_found_markings WHERE session_id = ? AND line_id = ?",
+                    (session_id, line_id),
+                )
             await db.commit()
 
     async def get_scan_events(self, session_id: int) -> list[dict]:

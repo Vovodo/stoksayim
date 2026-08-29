@@ -668,22 +668,10 @@ class AppDatabaseRepository(SQLiteSessionRepository):
                 await db.executemany(sql, items)
                 await db.commit()
 
-        return [
-            {
-                "id": 0,
-                "session_id": item[0],
-                "line_id": item[1],
-                "etiket": item[2],
-                "expected_shelf": item[3],
-                "expected": item[4],
-                "stok_no": item[5],
-                "product_name": item[6],
-                "marked_by": item[7],
-                "marked_at": item[8],
-                "tracking_status": item[9],
-            }
-            for item in items
-        ]
+        session_id = items[0][0]
+        line_ids = set(it[1] for it in items)
+        all_rows = await self.get_not_found_markings(session_id)
+        return [r for r in all_rows if r["line_id"] in line_ids]
 
     async def get_not_found_by_line(
         self, session_id: int, line_id: str
@@ -704,17 +692,38 @@ class AppDatabaseRepository(SQLiteSessionRepository):
         tracking_status: str,
         resolved_by: int,
         found_shelf: str = "",
+        session_id: Optional[int] = None,
+        line_id: Optional[str] = None,
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
-        await self._execute(
-            """UPDATE not_found_markings
-               SET tracking_status = ?, resolved_by = ?, resolved_at = ?, found_shelf = ?
-               WHERE id = ?""",
-            (tracking_status, resolved_by, now, found_shelf, marking_id),
-        )
+        if marking_id and marking_id > 0:
+            await self._execute(
+                """UPDATE not_found_markings
+                   SET tracking_status = ?, resolved_by = ?, resolved_at = ?, found_shelf = ?
+                   WHERE id = ?""",
+                (tracking_status, resolved_by, now, found_shelf, marking_id),
+            )
+        elif session_id is not None and line_id is not None:
+            await self._execute(
+                """UPDATE not_found_markings
+                   SET tracking_status = ?, resolved_by = ?, resolved_at = ?, found_shelf = ?
+                   WHERE session_id = ? AND line_id = ?""",
+                (tracking_status, resolved_by, now, found_shelf, session_id, line_id),
+            )
 
-    async def delete_not_found_marking(self, marking_id: int) -> None:
-        await self._execute("DELETE FROM not_found_markings WHERE id = ?", (marking_id,))
+    async def delete_not_found_marking(
+        self,
+        marking_id: int,
+        session_id: Optional[int] = None,
+        line_id: Optional[str] = None,
+    ) -> None:
+        if marking_id and marking_id > 0:
+            await self._execute("DELETE FROM not_found_markings WHERE id = ?", (marking_id,))
+        elif session_id is not None and line_id is not None:
+            await self._execute(
+                "DELETE FROM not_found_markings WHERE session_id = ? AND line_id = ?",
+                (session_id, line_id),
+            )
 
     async def get_not_found_markings(
         self, session_id: int, status: Optional[str] = None
@@ -744,7 +753,11 @@ class AppDatabaseRepository(SQLiteSessionRepository):
     async def get_not_found_recoveries(self, session_id: int) -> list[dict[str, Any]]:
         return await self._fetch_all(
             """
-            SELECT nf.*, u1.username as marked_by_username, u2.username as resolved_by_username
+            SELECT nf.*, 
+                   u1.username as marked_by_name, 
+                   u1.username as marked_by_username,
+                   u2.username as resolved_by_name,
+                   u2.username as resolved_by_username
             FROM not_found_markings nf
             LEFT JOIN users u1 ON nf.marked_by = u1.id
             LEFT JOIN users u2 ON nf.resolved_by = u2.id

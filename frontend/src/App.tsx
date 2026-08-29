@@ -360,6 +360,7 @@ export default function App() {
     if (event === "found_missing") {
       const list = d.recoveries as FoundMissingRecovery[] | undefined;
       if (list) setRecoveries(list);
+      void api.notFoundMarkings().then(setNotFoundMarkings).catch(() => {});
     }
 
     if (event === "not_found_marked" || event === "not_found_unmarked") {
